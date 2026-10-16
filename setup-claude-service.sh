@@ -3,7 +3,7 @@ set -e
 
 # === CONFIGURATION ===
 SCRIPT_VERSION="1.6.0"
-GIT_REPO_URL="https://github.com/YOUR-USERNAME/claude-automation-tasks.git"
+GIT_REPO_URL="https://git.example.com/robert/claude-rc-service.git"
 TARGET_DIR="$HOME/.claude"
 # =====================
 
