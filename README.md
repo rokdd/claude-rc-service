@@ -1,32 +1,23 @@
-# Unattended Claude Code Background Service with Git Sync
+# Claude Code background service
 
-A cross-platform, zero-dependency provisioning and automation wrapper designed to deploy **Claude Code** as an always-on, unattended background service on **macOS** and **Linux (Debian/Ubuntu)**.
+Runs Claude Code as an always-on service on macOS (LaunchAgent) and Linux (systemd user unit). One Claude session lives in tmux (`claude-service`) with Remote Control, and continues the last conversation in `WORK_DIR`; it starts a new one only if there is none.
 
----
+## Install
 
-## 📂 Architecture Overview
-
-The installation provisions a modular and highly secure directory structure directly inside Claude's native configurations directory:
-
-```text
-~/.claude/
-├── settings.json              # Permissive autoMode definitions and static entry hooks
-├── session_hook.default.sh    # SYSTEM MANAGED: Overwritten on update. Contains wrapper versions.
-├── session_hook.user.sh       # USER SANDBOX: Created once. Safe to edit locally for system metrics.
-├── local_artifact.txt         # Custom host metadata strings
-└── logs/
-    └── daemon.log             # Real-time orchestration log data
+```bash
+GIT_REPO_URL= WORK_DIR=$HOME ./setup-claude-service.sh
 ```
 
-## 🚀 Execution & Quickstart
+- `GIT_REPO_URL`: repo kept as a read-only copy in `~/.claude-service-repo` (fast-forward pull, hourly). Empty = no sync. A private repo needs an SSH URL with a deploy key or a URL with a read-only token.
+- `WORK_DIR`: directory the session runs in (default `$HOME`).
+- Sign in once with `claude`, then check `~/.claude/logs/daemon.log`.
 
-1. Configure your central task tracking link inside `setup-claude-service.sh`.
-2. Run the executable payload script: `./setup-claude-service.sh`
-3. Authenticate the agent once natively using your chosen profile terminal (`claude`).
+## What it writes
 
-## 🪝 Modular Session Hooks
+- `~/.local/bin/claude-bootstrap.sh`: hourly watchdog (network check, repo pull, restarts the tmux session).
+- `~/.claude/settings.json`: merged, not replaced. Adds basic allow rules and the SessionStart hook.
+- `~/.claude/session_hook.default.sh`: rewritten on every run. Put your own output in `session_hook.user.sh` (created once).
+- `~/.claude/on_start.txt`: if present, its text is sent once to the session, then renamed to `.processed`.
+- Linux: `~/.config/systemd/user/claude.service` (enable-linger via sudo). macOS: `~/Library/LaunchAgents/com.anthropic.claude.plist`.
 
-- **`session_hook.default.sh`:** Handles execution metadata logging during automated reboots and ensures your engine parameters are safely compiled.
-- **`session_hook.user.sh`:** Feel free to locally script host evaluations here utilizing commands dependent on `$(hostname)` or `$(whoami)`.
-
----
+Repo content is never executed automatically.
