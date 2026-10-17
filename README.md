@@ -2,31 +2,49 @@
 
 Runs Claude Code as an always-on service on macOS (LaunchAgent) and Linux (systemd user unit), with Remote Control, in a tmux session called `claude-service`.
 
+## Features
+
+- **Two modes:** `server` lists the machine as a computer in claude.ai/code. `session` keeps one interactive conversation that always continues.
+- **Watchdog:** checks the session every minute and restarts it if it died. Needs a connection to `api.anthropic.com`.
+- **Config file:** `~/.claude/service.env`, re-read every minute, no re-install needed.
+- **Session hook:** every session start prints host information into Claude's context, plus your own lines (see below).
+- **One-shot prompt:** put text in `~/.claude/on_start.txt` and the running session receives it once.
+- **Repo sync:** optional read-only copy of a Git repo, pulled hourly. Nothing from it is executed.
+- **Keep awake:** optional, blocks idle sleep while the session runs.
+- **Safe re-runs:** `settings.json` is merged, `service.env` and `session_hook.user.sh` are never overwritten, and an older `claude-rc.service` is disabled.
+
 ## Install
+
+Plain install with the defaults:
 
 ```bash
 ./setup-claude-service.sh
 ```
 
-Optional first-install values (they are only written to the config file once):
+With your own first-install values (written to `service.env` once; to change them later, edit that file):
 
 ```bash
-CLAUDE_MODE=server WORK_DIR=/opt/cicd GIT_REPO_URL= CLAUDE_NAME=beat ./setup-claude-service.sh
+CLAUDE_MODE=server \
+WORK_DIR=/opt/cicd \
+CLAUDE_NAME=beat \
+KEEP_AWAKE=no \
+GIT_REPO_URL=ssh://git@localhost:2222/robert/claude-rc-service.git \
+./setup-claude-service.sh
 ```
 
-Sign in once with `claude`, then check `~/.claude/logs/daemon.log` and `tmux attach -t claude-service`.
+Set `GIT_REPO_URL=` (empty) to turn repo sync off. Then sign in once with `claude`. Logs: `~/.claude/logs/daemon.log`. Attach: `tmux attach -t claude-service`.
 
 ## Config: `~/.claude/service.env`
 
-Created on the first install and never overwritten. The default repo URL is set at the top of `setup-claude-service.sh` (`GIT_REPO_URL`); when the repo moves, change that one line (or `GIT_REPO_URL` in an existing `service.env`). The watchdog re-reads it every minute, so changes apply without re-running the installer.
+Created on the first install and never overwritten. The watchdog re-reads it every minute. The default repo URL is the `GIT_REPO_URL` line at the top of `setup-claude-service.sh`; change that one line when the repo moves.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `CLAUDE_MODE` | `server` | `server` or `session`, see below. Changing it restarts the session. |
 | `CLAUDE_NAME` | hostname | Name shown in claude.ai/code (server mode). |
 | `WORK_DIR` | `$HOME` | Directory the session runs in. |
-| `KEEP_AWAKE` | `yes` on macOS, `no` on Linux | `yes` blocks idle sleep while the session runs (`caffeinate -is` on macOS, `systemd-inhibit` on Linux). Changes apply the next time the session starts. |
-| `GIT_REPO_URL` | empty | Repo kept as a read-only copy in `~/.claude-service-repo` (pulled hourly, fast-forward only, never executed). Private repo: SSH URL with a deploy key. |
+| `KEEP_AWAKE` | `yes` on macOS, `no` on Linux | `yes` blocks idle sleep (`caffeinate -is` on macOS, `systemd-inhibit` on Linux). Applies when the session next starts. |
+| `GIT_REPO_URL` | the repo's URL | Read-only copy in `~/.claude-service-repo`, pulled hourly (fast-forward only). Empty = off. A private repo needs an SSH URL with a deploy key. |
 | `CLAUDE_PERMISSION_MODE` | empty | Server mode only: `acceptEdits`, `auto`, `bypassPermissions`, `default`, `dontAsk`, `plan`. |
 
 ### Modes
@@ -34,11 +52,19 @@ Created on the first install and never overwritten. The default repo URL is set 
 - **`server`** (default): runs `claude remote-control --name <name> --continue`, falling back to a plain `claude remote-control`. The machine is listed as a computer in claude.ai/code and sessions are opened from there. `--continue` only reattaches to a session from the last ~4 hours.
 - **`session`**: runs `claude --continue --remote-control`, falling back to `claude --remote-control`. One interactive session that always continues the last conversation in `WORK_DIR`, even an old or archived one. It is listed as a session, not as a computer.
 
+## Session hook
+
+The installer adds a `SessionStart` hook to `~/.claude/settings.json` that runs `~/.claude/session_hook.default.sh`. Whatever the hook prints becomes part of Claude's context when a session starts or resumes.
+
+- `session_hook.default.sh`: rewritten on every install. Prints the wrapper version, host name, user and time, then runs your hook and shows `~/.claude/local_artifact.txt` if it exists.
+- `session_hook.user.sh`: created once, yours to edit. Example: print `hostname`, the number of CPU cores or a note like "this machine is the build server".
+- `local_artifact.txt`: free text about this machine, shown at every session start.
+
 ## What the installer writes
 
-- `~/.local/bin/claude-bootstrap.sh`: watchdog. Checks the session every minute and restarts it if missing, pulls the repo hourly, keeps `daemon.log` under 1 MB.
+- `~/.local/bin/claude-bootstrap.sh`: the watchdog.
 - `~/.claude/service.env`: the config above.
-- `~/.claude/settings.json`: merged, not replaced. Adds basic allow rules and the SessionStart hook.
-- `~/.claude/session_hook.default.sh`: rewritten on every run. Put your own output in `session_hook.user.sh` (created once).
+- `~/.claude/settings.json`: merged, not replaced. Adds basic allow rules and the hook.
 - `~/.claude/on_start.txt`: if present, its text is sent once to the session, then renamed to `.processed`.
-- Linux: `~/.config/systemd/user/claude.service` and linger via sudo (only if not already on). The older `claude-rc.service` is disabled if it exists. macOS: `~/Library/LaunchAgents/com.anthropic.claude.plist`.
+- Linux: `~/.config/systemd/user/claude.service`, plus linger via sudo (only if not already on).
+- macOS: `~/Library/LaunchAgents/com.anthropic.claude.plist`.
