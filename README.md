@@ -76,7 +76,7 @@ The installer adds a `SessionStart` hook to `~/.claude/settings.json` that runs 
 
 ## Handover: `~/.claude/CLAUDE.md`
 
-Claude Code loads `~/.claude/CLAUDE.md` into every session. The installer creates it once (never overwritten) with a rule: after every change that matters, Claude updates the Handover section (state, open tasks, where things live) and links files or artifacts instead of copying them. A new or resumed session reads it at start and opens the linked files, `local_artifact.txt` or artifacts only when the task needs them. So a session can be handed over at any time. Edit the file freely; if it already exists, add the rule yourself.
+Claude Code loads `~/.claude/CLAUDE.md` into every session. The installer creates it once (never overwritten) with a rule: after every change that matters, Claude updates the Handover section (state, open tasks, where things live) and lists Claude artifacts (claude.ai links) for longer write-ups instead of copying them. A new or resumed session reads it at start and reads a listed artifact only when the task needs it. So a session can be handed over at any time. Edit the file freely; if it already exists, add the rule yourself.
 
 ## What the installer writes
 
