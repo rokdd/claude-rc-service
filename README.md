@@ -28,7 +28,7 @@ CLAUDE_MODE=server \
 WORK_DIR=/opt/cicd \
 CLAUDE_NAME=beat \
 KEEP_AWAKE=no \
-GIT_REPO_URL=ssh://git@localhost:2222/robert/claude-rc-service.git \
+GIT_REPO_URL=https://github.com/rokdd/claude-rc-service.git \
 ./setup-claude-service.sh
 ```
 
@@ -44,7 +44,7 @@ Created on the first install and never overwritten. The watchdog re-reads it eve
 | `CLAUDE_NAME` | hostname | Name shown in claude.ai/code (server mode). |
 | `WORK_DIR` | `$HOME` | Directory the session runs in. |
 | `KEEP_AWAKE` | `yes` on macOS, `no` on Linux | `yes` blocks idle sleep (`caffeinate -is` on macOS, `systemd-inhibit` on Linux). Applies when the session next starts. |
-| `GIT_REPO_URL` | the repo's URL | Read-only copy in `~/.claude-service-repo`, pulled hourly (fast-forward only). Empty = off. A private repo needs an SSH URL with a deploy key. |
+| `GIT_REPO_URL` | the repo's URL | Read-only copy in `~/.claude-service-repo`, pulled hourly (fast-forward only). Empty = off. The default repo is public, so no login is needed; a private repo needs an SSH URL with a deploy key. |
 | `CLAUDE_PERMISSION_MODE` | empty | Server mode only: `acceptEdits`, `auto`, `bypassPermissions`, `default`, `dontAsk`, `plan`. |
 
 ### Modes
