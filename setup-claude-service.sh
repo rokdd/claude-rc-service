@@ -5,7 +5,7 @@ set -e
 
 # === FIRST-INSTALL DEFAULTS (override with environment variables) ===
 # They are written once to ~/.claude/service.env; edit that file afterwards, the watchdog re-reads it every minute.
-SCRIPT_VERSION="2.0.0"
+SCRIPT_VERSION="2.1.0"
 # Repo with shared hooks/tasks: the only place that names it. Change this line when the repo moves (e.g. to GitHub).
 # Private repo: use an SSH URL with a deploy key, or a URL with a read-only token. Empty = no syncing.
 GIT_REPO_URL="${GIT_REPO_URL-https://github.com/rokdd/claude-rc-service.git}"
@@ -51,6 +51,7 @@ echo "Deployment wrapper version: $SCRIPT_VERSION"
 echo "Host: \$(hostname), user: \$(whoami), time: \$(date)"
 [ -f "$TARGET_DIR/session_hook.user.sh" ] && /bin/bash "$TARGET_DIR/session_hook.user.sh"
 [ -f "$TARGET_DIR/local_artifact.txt" ] && cat "$TARGET_DIR/local_artifact.txt"
+echo "Handover: keep the Handover section in $TARGET_DIR/CLAUDE.md current, so another session can take over at any time. Read the files or artifacts it links when you need them."
 exit 0
 EOF
 
@@ -59,6 +60,25 @@ if [ ! -f "$TARGET_DIR/session_hook.user.sh" ]; then
 #!/bin/bash
 # Your own session hook. Whatever it prints is added to Claude's context at session start.
 # echo "Cores: $(nproc 2>/dev/null || sysctl -n hw.ncpu)"
+EOF
+fi
+
+# 3b. CLAUDE.md (created once, never overwritten): loaded into every session, holds the handover notes
+if [ ! -f "$TARGET_DIR/CLAUDE.md" ]; then
+    cat > "$TARGET_DIR/CLAUDE.md" <<'EOF'
+# This machine
+
+## Session handover
+
+A session can be handed over to a new one at any time (restart, crash, new conversation). So:
+
+- After every change that matters (setup, decisions, open tasks), update the Handover section below right away, not at the end.
+- Keep it short: current state, open tasks, where things live. Link files and artifacts instead of copying them.
+- At session start, read this file. Open the linked files, `~/.claude/local_artifact.txt` or artifacts only when the task needs them.
+
+## Handover
+
+(nothing yet)
 EOF
 fi
 
