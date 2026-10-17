@@ -9,7 +9,6 @@ Runs Claude Code as an always-on service on macOS (LaunchAgent) and Linux (syste
 - **Watchdog:** checks the session every minute and restarts it if it died. Needs a connection to `api.anthropic.com`.
 - **Config file:** `~/.claude/service.env`, re-read every minute, no re-install needed.
 - **Session hook:** every session start prints host information into Claude's context, plus your own lines (see below).
-- **Handover via CLAUDE.md:** `~/.claude/CLAUDE.md` tells Claude to keep handover notes current, so a new session can take over at any time.
 - **One-shot prompt:** put text in `~/.claude/on_start.txt` and the running session receives it once.
 - **Repo sync:** optional read-only copy of a Git repo, pulled hourly. Nothing from it is executed.
 - **Keep awake:** optional, blocks idle sleep while the session runs.
@@ -63,7 +62,7 @@ Created on the first install and never overwritten. The watchdog re-reads it eve
    - `server` mode: `claude remote-control --continue` reattaches to the last session if it is from the last ~4 hours; otherwise the machine comes back as a computer in claude.ai/code with no session open, and you start or pick one there.
 4. Remote Control itself reconnects after short network drops while Claude keeps running, so the session stays the same.
 
-Conversations are stored per directory in `~/.claude/projects/`, so keep `WORK_DIR` fixed if you want to resume. Anything a resumed or new session must know goes into `~/.claude/CLAUDE.md` (see below).
+Conversations are stored per directory in `~/.claude/projects/`, so keep `WORK_DIR` fixed if you want to resume. Anything a resumed or new session must know can go into `~/.claude/CLAUDE.md` or the user hook below.
 
 ## Session hook
 
@@ -72,18 +71,12 @@ The installer adds a `SessionStart` hook to `~/.claude/settings.json` that runs 
 - `session_hook.default.sh`: rewritten on every install. Prints the wrapper version, host name, user and time, then runs your hook and shows `~/.claude/local_artifact.txt` if it exists.
 - `session_hook.user.sh`: created once, yours to edit. Example: print `hostname`, the number of CPU cores or a note like "this machine is the build server".
 - `local_artifact.txt`: free text about this machine, shown at every session start.
-- The default hook also prints a reminder to keep the Handover section of `~/.claude/CLAUDE.md` current.
-
-## Handover: `~/.claude/CLAUDE.md`
-
-Claude Code loads `~/.claude/CLAUDE.md` into every session. The installer creates it once (never overwritten) with a rule: after every change that matters, Claude updates the Handover section (state, open tasks, where things live) and lists Claude artifacts (claude.ai links) for longer write-ups instead of copying them. A new or resumed session reads it at start and reads a listed artifact only when the task needs it. So a session can be handed over at any time. Edit the file freely; if it already exists, add the rule yourself.
 
 ## What the installer writes
 
 - `~/.local/bin/claude-bootstrap.sh`: the watchdog.
 - `~/.claude/service.env`: the config above.
 - `~/.claude/settings.json`: merged, not replaced. Adds basic allow rules and the hook.
-- `~/.claude/CLAUDE.md`: created once with the handover rule, never overwritten.
 - `~/.claude/on_start.txt`: if present, its text is sent once to the session, then renamed to `.processed`.
 - Linux: `~/.config/systemd/user/claude.service`, plus linger via sudo (only if not already on).
 - macOS: `~/Library/LaunchAgents/com.anthropic.claude.plist`.
