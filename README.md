@@ -72,6 +72,11 @@ The installer adds a `SessionStart` hook to `~/.claude/settings.json` that runs 
 - `session_hook.user.sh`: created once, yours to edit. Example: print `hostname`, the number of CPU cores or a note like "this machine is the build server".
 - `local_artifact.txt`: free text about this machine, shown at every session start.
 
+Examples for `session_hook.user.sh` are in [`examples/user-session-hooks/`](examples/user-session-hooks/). Copy the lines you want into your own hook; nothing there runs by itself.
+
+- `handover.sh` + `CLAUDE.md.example`: reminds Claude to keep handover notes in `~/.claude/CLAUDE.md`, so another session can take over at any time.
+- `machine-info.sh`: prints OS, cores and free disk space.
+
 ## What the installer writes
 
 - `~/.local/bin/claude-bootstrap.sh`: the watchdog.

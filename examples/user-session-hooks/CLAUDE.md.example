@@ -1,0 +1,13 @@
+# This machine: <name>
+
+## Session handover
+
+A session can be handed over to a new one at any time (restart, crash, new conversation). So:
+
+- After every change that matters (setup, decisions, open tasks), update the Handover section below right away, not at the end.
+- Keep it short: current state, open tasks, where things live. Put longer write-ups in Claude artifacts and list their claude.ai links here.
+- At session start, read this file. Read a listed Claude artifact (Artifact tool, action read) only when the task needs it.
+
+## Handover
+
+(nothing yet)
