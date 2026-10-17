@@ -8,7 +8,7 @@ set -e
 SCRIPT_VERSION="2.0.0"
 # Repo with shared hooks/tasks: the only place that names it. Change this line when the repo moves (e.g. to GitHub).
 # Private repo: use an SSH URL with a deploy key, or a URL with a read-only token. Empty = no syncing.
-GIT_REPO_URL="${GIT_REPO_URL-https://git.example.com/robert/claude-rc-service.git}"
+GIT_REPO_URL="${GIT_REPO_URL-https://github.com/rokdd/claude-rc-service.git}"
 # Directory the session runs in (its conversations are continued per directory).
 WORK_DIR="${WORK_DIR:-$HOME}"
 CLAUDE_MODE="${CLAUDE_MODE:-server}"   # server = machine shows up as a computer in claude.ai/code; session = one continued interactive session
