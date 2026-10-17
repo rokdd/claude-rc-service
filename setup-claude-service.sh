@@ -3,13 +3,16 @@
 # It keeps one Claude session alive in tmux with Remote Control, continuing the last conversation.
 set -e
 
-# === CONFIGURATION (override with environment variables) ===
+# === FIRST-INSTALL DEFAULTS (override with environment variables) ===
+# They are written once to ~/.claude/service.env; edit that file afterwards, the watchdog re-reads it every minute.
 SCRIPT_VERSION="2.0.0"
 # Repo with shared hooks/tasks. Private repo: use an SSH URL with a deploy key, or a URL with a read-only token.
 # Leave empty to skip syncing.
 GIT_REPO_URL="${GIT_REPO_URL:-https://git.example.com/robert/claude-rc-service.git}"
 # Directory the session runs in (its conversations are continued per directory).
 WORK_DIR="${WORK_DIR:-$HOME}"
+CLAUDE_MODE="${CLAUDE_MODE:-server}"   # server = machine shows up as a computer in claude.ai/code; session = one continued interactive session
+CLAUDE_NAME="${CLAUDE_NAME:-$(hostname -s)}"
 TARGET_DIR="$HOME/.claude"
 REPO_DIR="$HOME/.claude-service-repo"
 # ===========================================================
@@ -78,19 +81,43 @@ if not any(h.get("command") == cmd for e in hooks for h in e.get("hooks", [])):
 json.dump(s, open(path, "w"), indent=2)
 EOF
 
+# 4b. Config file (created once, never overwritten)
+ENV_FILE="$TARGET_DIR/service.env"
+if [ ! -f "$ENV_FILE" ]; then
+    cat > "$ENV_FILE" <<EOF
+# Read by claude-bootstrap.sh every minute. Changes apply without re-running the installer.
+# server  = "claude remote-control": this machine is listed as a computer in claude.ai/code,
+#           sessions are opened from there. --continue reattaches only to a session from the last ~4 hours.
+# session = "claude --continue --remote-control": one interactive session that always continues the
+#           last conversation in WORK_DIR, but it is listed as a session, not as a computer.
+CLAUDE_MODE="$CLAUDE_MODE"
+# Name shown in claude.ai/code (server mode)
+CLAUDE_NAME="$CLAUDE_NAME"
+# Directory the session runs in
+WORK_DIR="$WORK_DIR"
+# Optional repo kept as a read-only copy in ~/.claude-service-repo (empty = off)
+GIT_REPO_URL="$GIT_REPO_URL"
+# Optional, server mode: acceptEdits, auto, bypassPermissions, default, dontAsk, plan
+CLAUDE_PERMISSION_MODE=""
+EOF
+    echo "Wrote $ENV_FILE"
+else
+    echo "Keeping existing $ENV_FILE"
+fi
+
 # 5. Watchdog script
 cat > "$HOME/.local/bin/claude-bootstrap.sh" <<'EOF'
 #!/bin/bash
 export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:$PATH"
 TARGET_DIR="$HOME/.claude"
 REPO_DIR="$HOME/.claude-service-repo"
-GIT_REPO_URL="__GIT_REPO_URL__"
-WORK_DIR="__WORK_DIR__"
+ENV_FILE="$TARGET_DIR/service.env"
 SESSION="claude-service"
 CHECK_EVERY=60        # seconds between session checks
 SYNC_EVERY=3600       # seconds between repo pulls
 LOG="$TARGET_DIR/logs/daemon.log"
 last_sync=0
+running_mode=""
 
 mkdir -p "$TARGET_DIR/logs"
 exec >> "$TARGET_DIR/logs/daemon.log" 2>&1
@@ -100,6 +127,10 @@ TMUX=$(command -v tmux)
 echo "[$(date)] Watchdog started"
 
 while true; do
+    # Defaults, then the config file
+    CLAUDE_MODE=server; CLAUDE_NAME=$(hostname -s); WORK_DIR="$HOME"; GIT_REPO_URL=""; CLAUDE_PERMISSION_MODE=""
+    [ -f "$ENV_FILE" ] && . "$ENV_FILE"
+
     # Keep the log small
     [ "$(wc -c < "$LOG" 2>/dev/null || echo 0)" -gt 1000000 ] && tail -n 500 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG"
 
@@ -122,14 +153,24 @@ while true; do
             last_sync=$now
         fi
 
-        # Keep the session alive: continue the last conversation with Remote Control, else start a new one
+        # Mode changed in the config file: stop the running session so it restarts in the new mode
+        if [ -n "$running_mode" ] && [ "$running_mode" != "$CLAUDE_MODE" ] && "$TMUX" has-session -t "$SESSION" 2>/dev/null; then
+            echo "[$(date)] Mode changed ($running_mode -> $CLAUDE_MODE), restarting"
+            "$TMUX" kill-session -t "$SESSION"
+        fi
+
+        # Keep the session alive
         if ! "$TMUX" has-session -t "$SESSION" 2>/dev/null; then
-            echo "[$(date)] Session missing, starting it"
-            "$TMUX" new-session -d -s "$SESSION" -c "$WORK_DIR" \
-                "'$CLAUDE' --continue --remote-control || '$CLAUDE' --remote-control"
+            echo "[$(date)] Session missing, starting it in $CLAUDE_MODE mode"
+            if [ "$CLAUDE_MODE" = "session" ]; then
+                CMD="'$CLAUDE' --continue --remote-control || '$CLAUDE' --remote-control"
+            else
+                PM=""; [ -n "$CLAUDE_PERMISSION_MODE" ] && PM="--permission-mode $CLAUDE_PERMISSION_MODE"
+                CMD="'$CLAUDE' remote-control --name '$CLAUDE_NAME' $PM --continue || '$CLAUDE' remote-control --name '$CLAUDE_NAME' $PM"
+            fi
+            "$TMUX" new-session -d -s "$SESSION" -c "$WORK_DIR" "$CMD"
+            running_mode="$CLAUDE_MODE"
             sleep 5
-        else
-            :
         fi
 
         # One-shot prompt injection
@@ -145,8 +186,6 @@ while true; do
     sleep "$CHECK_EVERY"
 done
 EOF
-sed -i.bak -e "s|__GIT_REPO_URL__|$GIT_REPO_URL|" -e "s|__WORK_DIR__|$WORK_DIR|" "$HOME/.local/bin/claude-bootstrap.sh"
-rm -f "$HOME/.local/bin/claude-bootstrap.sh.bak"
 chmod +x "$HOME/.local/bin/claude-bootstrap.sh" "$TARGET_DIR/session_hook.default.sh" "$TARGET_DIR/session_hook.user.sh"
 
 # 5b. Retire the older single-purpose unit (claude-rc.service) so two sessions do not fight over one conversation
