@@ -165,23 +165,31 @@ while true; do
         # Keep the session alive
         if ! "$TMUX" has-session -t "$SESSION" 2>/dev/null; then
             echo "[$(date)] Session missing, starting it in $CLAUDE_MODE mode"
-            # Trust WORK_DIR, so a first start does not hang at Claude's "trust this folder?" question
-            python3 - "$HOME/.claude.json" "$WORK_DIR" <<'PY' || echo "Could not mark $WORK_DIR as trusted"
+            # Pre-answer Claude's one-time startup questions (onboarding, Remote Control, trust WORK_DIR,
+            # CLAUDE.md includes, bypassPermissions warning), so a start with nobody attached never hangs
+            python3 - "$HOME/.claude.json" "$WORK_DIR" "$CLAUDE_PERMISSION_MODE" <<'PY' || echo "Could not pre-answer the startup questions"
 import json, os, sys
-path, wd = sys.argv[1], os.path.realpath(sys.argv[2])
+path, wd, pm = sys.argv[1], os.path.realpath(sys.argv[2]), sys.argv[3]
 try:
     d = json.load(open(path))
 except FileNotFoundError:
     d = {}
+want = {"hasCompletedOnboarding": True, "remoteDialogSeen": True}
+if pm == "bypassPermissions":
+    want["bypassPermissionsModeAccepted"] = True
+want_project = {"hasTrustDialogAccepted": True, "hasClaudeMdExternalIncludesApproved": True,
+                "hasClaudeMdExternalIncludesWarningShown": True}
 p = d.setdefault("projects", {}).setdefault(wd, {})
-if not p.get("hasTrustDialogAccepted"):
-    p["hasTrustDialogAccepted"] = True
+changed = [k for k, v in want.items() if d.get(k) != v] + [k for k, v in want_project.items() if p.get(k) != v]
+if changed:
+    d.update(want)
+    p.update(want_project)
     tmp = path + ".tmp"
     with open(tmp, "w") as f:
         json.dump(d, f, indent=2)
     os.chmod(tmp, os.stat(path).st_mode if os.path.exists(path) else 0o600)
     os.replace(tmp, path)
-    print("Marked " + wd + " as trusted")
+    print("Pre-answered for " + wd + ": " + ", ".join(changed))
 PY
             if [ "$CLAUDE_MODE" = "session" ]; then
                 CMD="'$CLAUDE' --continue --remote-control || '$CLAUDE' --remote-control"
