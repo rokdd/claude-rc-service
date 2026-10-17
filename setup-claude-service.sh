@@ -13,6 +13,7 @@ GIT_REPO_URL="${GIT_REPO_URL:-https://git.example.com/robert/claude-rc-service.g
 WORK_DIR="${WORK_DIR:-$HOME}"
 CLAUDE_MODE="${CLAUDE_MODE:-server}"   # server = machine shows up as a computer in claude.ai/code; session = one continued interactive session
 CLAUDE_NAME="${CLAUDE_NAME:-$(hostname -s)}"
+if [[ "$OSTYPE" == "darwin"* ]]; then KEEP_AWAKE="${KEEP_AWAKE:-yes}"; else KEEP_AWAKE="${KEEP_AWAKE:-no}"; fi   # yes = block idle sleep while the session runs
 TARGET_DIR="$HOME/.claude"
 REPO_DIR="$HOME/.claude-service-repo"
 # ===========================================================
@@ -95,6 +96,8 @@ CLAUDE_MODE="$CLAUDE_MODE"
 CLAUDE_NAME="$CLAUDE_NAME"
 # Directory the session runs in
 WORK_DIR="$WORK_DIR"
+# Keep the machine awake while the session runs: yes (caffeinate on macOS, systemd-inhibit on Linux) or no
+KEEP_AWAKE="$KEEP_AWAKE"
 # Optional repo kept as a read-only copy in ~/.claude-service-repo (empty = off)
 GIT_REPO_URL="$GIT_REPO_URL"
 # Optional, server mode: acceptEdits, auto, bypassPermissions, default, dontAsk, plan
@@ -128,7 +131,7 @@ echo "[$(date)] Watchdog started"
 
 while true; do
     # Defaults, then the config file
-    CLAUDE_MODE=server; CLAUDE_NAME=$(hostname -s); WORK_DIR="$HOME"; GIT_REPO_URL=""; CLAUDE_PERMISSION_MODE=""
+    CLAUDE_MODE=server; CLAUDE_NAME=$(hostname -s); WORK_DIR="$HOME"; GIT_REPO_URL=""; CLAUDE_PERMISSION_MODE=""; KEEP_AWAKE=no
     [ -f "$ENV_FILE" ] && . "$ENV_FILE"
 
     # Keep the log small
@@ -168,6 +171,13 @@ while true; do
                 PM=""; [ -n "$CLAUDE_PERMISSION_MODE" ] && PM="--permission-mode $CLAUDE_PERMISSION_MODE"
                 CMD="'$CLAUDE' remote-control --name '$CLAUDE_NAME' $PM --continue || '$CLAUDE' remote-control --name '$CLAUDE_NAME' $PM"
             fi
+            PREFIX=""
+            if [ "$KEEP_AWAKE" = "yes" ]; then
+                if command -v caffeinate >/dev/null; then PREFIX="caffeinate -is"
+                elif command -v systemd-inhibit >/dev/null; then PREFIX="systemd-inhibit --what=idle:sleep --who=claude-service --why=Claude-background-session"
+                else echo "KEEP_AWAKE=yes but neither caffeinate nor systemd-inhibit found"; fi
+            fi
+            if [ -n "$PREFIX" ]; then CMD="$PREFIX bash -c $(printf '%q' "$CMD")"; fi
             "$TMUX" new-session -d -s "$SESSION" -c "$WORK_DIR" "$CMD"
             running_mode="$CLAUDE_MODE"
             sleep 5

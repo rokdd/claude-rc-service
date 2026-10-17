@@ -25,6 +25,7 @@ Created on the first install and never overwritten. The watchdog re-reads it eve
 | `CLAUDE_MODE` | `server` | `server` or `session`, see below. Changing it restarts the session. |
 | `CLAUDE_NAME` | hostname | Name shown in claude.ai/code (server mode). |
 | `WORK_DIR` | `$HOME` | Directory the session runs in. |
+| `KEEP_AWAKE` | `yes` on macOS, `no` on Linux | `yes` blocks idle sleep while the session runs (`caffeinate -is` on macOS, `systemd-inhibit` on Linux). Changes apply the next time the session starts. |
 | `GIT_REPO_URL` | empty | Repo kept as a read-only copy in `~/.claude-service-repo` (pulled hourly, fast-forward only, never executed). Private repo: SSH URL with a deploy key. |
 | `CLAUDE_PERMISSION_MODE` | empty | Server mode only: `acceptEdits`, `auto`, `bypassPermissions`, `default`, `dontAsk`, `plan`. |
 
