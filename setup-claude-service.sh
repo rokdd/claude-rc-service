@@ -5,7 +5,7 @@ set -e
 
 # === FIRST-INSTALL DEFAULTS (override with environment variables) ===
 # They are written once to ~/.claude/service.env; edit that file afterwards, the watchdog re-reads it every minute.
-SCRIPT_VERSION="2.0.0"
+SCRIPT_VERSION="2.1.0"
 # Repo with shared hooks/tasks: the only place that names it. Change this line when the repo moves (e.g. to GitHub).
 # Private repo: use an SSH URL with a deploy key, or a URL with a read-only token. Empty = no syncing.
 GIT_REPO_URL="${GIT_REPO_URL-https://github.com/rokdd/claude-rc-service.git}"
@@ -165,6 +165,24 @@ while true; do
         # Keep the session alive
         if ! "$TMUX" has-session -t "$SESSION" 2>/dev/null; then
             echo "[$(date)] Session missing, starting it in $CLAUDE_MODE mode"
+            # Trust WORK_DIR, so a first start does not hang at Claude's "trust this folder?" question
+            python3 - "$HOME/.claude.json" "$WORK_DIR" <<'PY' || echo "Could not mark $WORK_DIR as trusted"
+import json, os, sys
+path, wd = sys.argv[1], os.path.realpath(sys.argv[2])
+try:
+    d = json.load(open(path))
+except FileNotFoundError:
+    d = {}
+p = d.setdefault("projects", {}).setdefault(wd, {})
+if not p.get("hasTrustDialogAccepted"):
+    p["hasTrustDialogAccepted"] = True
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(d, f, indent=2)
+    os.chmod(tmp, os.stat(path).st_mode if os.path.exists(path) else 0o600)
+    os.replace(tmp, path)
+    print("Marked " + wd + " as trusted")
+PY
             if [ "$CLAUDE_MODE" = "session" ]; then
                 CMD="'$CLAUDE' --continue --remote-control || '$CLAUDE' --remote-control"
             else

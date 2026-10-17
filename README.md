@@ -12,6 +12,7 @@ Runs Claude Code as an always-on service on macOS (LaunchAgent) and Linux (syste
 - **One-shot prompt:** put text in `~/.claude/on_start.txt` and the running session receives it once.
 - **Repo sync:** optional read-only copy of a Git repo, pulled hourly. Nothing from it is executed.
 - **Keep awake:** optional, blocks idle sleep while the session runs.
+- **No trust prompt:** `WORK_DIR` is marked as trusted in `~/.claude.json` before the session starts, so a first start does not hang at Claude's "Do you trust the files in this folder?" question with nobody attached. Installing means you trust `WORK_DIR`.
 - **Safe re-runs:** `settings.json` is merged, `service.env` and `session_hook.user.sh` are never overwritten, and an older `claude-rc.service` is disabled.
 
 ## Install
@@ -57,7 +58,7 @@ Created on the first install and never overwritten. The watchdog re-reads it eve
 
 1. systemd (`Restart=always`) or launchd (`KeepAlive`) starts the watchdog at boot and restarts it if it exits.
 2. Every minute the watchdog checks that `api.anthropic.com` is reachable. Without a connection it waits and retries; nothing is restarted.
-3. If the tmux session `claude-service` is gone (Claude crashed, was closed or the machine rebooted), it starts it again in `WORK_DIR`:
+3. If the tmux session `claude-service` is gone (Claude crashed, was closed or the machine rebooted), it marks `WORK_DIR` as trusted (only if it is not yet) and starts the session again there:
    - `session` mode: `claude --continue --remote-control` resumes the last conversation of `WORK_DIR`, however old. Only if there is none does it start a new one.
    - `server` mode: `claude remote-control --continue` reattaches to the last session if it is from the last ~4 hours; otherwise the machine comes back as a computer in claude.ai/code with no session open, and you start or pick one there.
 4. Remote Control itself reconnects after short network drops while Claude keeps running, so the session stays the same.
@@ -94,6 +95,7 @@ Settings at the top of the file (`yes`/`no`; they can also be set in `service.en
 - `~/.local/bin/claude-bootstrap.sh`: the watchdog.
 - `~/.claude/service.env`: the config above.
 - `~/.claude/settings.json`: merged, not replaced. Adds basic allow rules and the hook.
+- `~/.claude.json`: the watchdog sets `hasTrustDialogAccepted` for `WORK_DIR` only (also after you change `WORK_DIR`), nothing else.
 - `~/.claude/on_start.txt`: if present, its text is sent once to the session, then renamed to `.processed`.
 - Linux: `~/.config/systemd/user/claude.service`, plus linger via sudo (only if not already on).
 - macOS: `~/Library/LaunchAgents/com.anthropic.claude.plist`.
