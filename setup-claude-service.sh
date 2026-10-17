@@ -87,7 +87,10 @@ REPO_DIR="$HOME/.claude-service-repo"
 GIT_REPO_URL="__GIT_REPO_URL__"
 WORK_DIR="__WORK_DIR__"
 SESSION="claude-service"
-INTERVAL=3600
+CHECK_EVERY=60        # seconds between session checks
+SYNC_EVERY=3600       # seconds between repo pulls
+LOG="$TARGET_DIR/logs/daemon.log"
+last_sync=0
 
 mkdir -p "$TARGET_DIR/logs"
 exec >> "$TARGET_DIR/logs/daemon.log" 2>&1
@@ -97,7 +100,8 @@ TMUX=$(command -v tmux)
 echo "[$(date)] Watchdog started"
 
 while true; do
-    echo "[$(date)] Check"
+    # Keep the log small
+    [ "$(wc -c < "$LOG" 2>/dev/null || echo 0)" -gt 1000000 ] && tail -n 500 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG"
 
     if [ -z "$CLAUDE" ] || ! "$CLAUDE" --version >/dev/null 2>&1; then
         echo "Claude binary missing or broken, retrying in 60 s"
@@ -108,22 +112,24 @@ while true; do
 
     if curl -sI --max-time 10 https://api.anthropic.com/ >/dev/null; then
         # Keep a read-only copy of the repo (fast-forward only, never touches ~/.claude)
-        if [ -n "$GIT_REPO_URL" ]; then
+        now=$(date +%s)
+        if [ -n "$GIT_REPO_URL" ] && [ $((now - last_sync)) -ge "$SYNC_EVERY" ]; then
             if [ -d "$REPO_DIR/.git" ]; then
                 git -C "$REPO_DIR" pull --ff-only || echo "Git pull failed"
             else
                 git clone "$GIT_REPO_URL" "$REPO_DIR" || echo "Git clone failed"
             fi
+            last_sync=$now
         fi
 
         # Keep the session alive: continue the last conversation with Remote Control, else start a new one
         if ! "$TMUX" has-session -t "$SESSION" 2>/dev/null; then
-            echo "Session missing, starting it"
+            echo "[$(date)] Session missing, starting it"
             "$TMUX" new-session -d -s "$SESSION" -c "$WORK_DIR" \
                 "'$CLAUDE' --continue --remote-control || '$CLAUDE' --remote-control"
             sleep 5
         else
-            echo "Session alive"
+            :
         fi
 
         # One-shot prompt injection
@@ -133,15 +139,23 @@ while true; do
             "$TMUX" send-keys -t "$SESSION" "Read $TARGET_DIR/on_start.txt.processed and carry out the instructions in it." Enter
         fi
     else
-        echo "No connection to api.anthropic.com, skipping"
+        echo "[$(date)] No connection to api.anthropic.com, retrying"
     fi
 
-    sleep "$INTERVAL"
+    sleep "$CHECK_EVERY"
 done
 EOF
 sed -i.bak -e "s|__GIT_REPO_URL__|$GIT_REPO_URL|" -e "s|__WORK_DIR__|$WORK_DIR|" "$HOME/.local/bin/claude-bootstrap.sh"
 rm -f "$HOME/.local/bin/claude-bootstrap.sh.bak"
 chmod +x "$HOME/.local/bin/claude-bootstrap.sh" "$TARGET_DIR/session_hook.default.sh" "$TARGET_DIR/session_hook.user.sh"
+
+# 5b. Retire the older single-purpose unit (claude-rc.service) so two sessions do not fight over one conversation
+if [ "$OS" == "linux" ] && systemctl --user list-unit-files claude-rc.service >/dev/null 2>&1 \
+   && systemctl --user is-enabled claude-rc.service >/dev/null 2>&1; then
+    echo "Disabling the old claude-rc.service"
+    systemctl --user disable --now claude-rc.service || true
+    tmux kill-session -t claude 2>/dev/null || true
+fi
 
 # 6. Autostart
 if [ "$OS" == "mac" ]; then
@@ -180,7 +194,7 @@ EOF
     systemctl --user daemon-reload
     systemctl --user enable claude.service
     systemctl --user restart claude.service
-    sudo loginctl enable-linger "$USER"
+    loginctl show-user "$USER" -p Linger 2>/dev/null | grep -q yes || sudo loginctl enable-linger "$USER"
 fi
 
 echo "Done. Sign in once with 'claude' if you have not yet. Log: $TARGET_DIR/logs/daemon.log"

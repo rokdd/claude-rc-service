@@ -14,9 +14,10 @@ GIT_REPO_URL= WORK_DIR=$HOME ./setup-claude-service.sh
 
 ## What it writes
 
-- `~/.local/bin/claude-bootstrap.sh`: hourly watchdog (network check, repo pull, restarts the tmux session).
+- `~/.local/bin/claude-bootstrap.sh`: watchdog: checks the session every minute and restarts it if missing, pulls the repo hourly, keeps its log under 1 MB.
 - `~/.claude/settings.json`: merged, not replaced. Adds basic allow rules and the SessionStart hook.
 - `~/.claude/session_hook.default.sh`: rewritten on every run. Put your own output in `session_hook.user.sh` (created once).
+- The installer disables the older `claude-rc.service` if it exists.
 - `~/.claude/on_start.txt`: if present, its text is sent once to the session, then renamed to `.processed`.
 - Linux: `~/.config/systemd/user/claude.service` (enable-linger via sudo). macOS: `~/Library/LaunchAgents/com.anthropic.claude.plist`.
 
