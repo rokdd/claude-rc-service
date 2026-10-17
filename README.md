@@ -72,10 +72,22 @@ The installer adds a `SessionStart` hook to `~/.claude/settings.json` that runs 
 - `session_hook.user.sh`: created once, yours to edit. Example: print `hostname`, the number of CPU cores or a note like "this machine is the build server".
 - `local_artifact.txt`: free text about this machine, shown at every session start.
 
-Examples for `session_hook.user.sh` are in [`examples/user-session-hooks/`](examples/user-session-hooks/). Copy the lines you want into your own hook; nothing there runs by itself.
+### Example user hook
 
-- `handover.sh` + `CLAUDE.md.example`: reminds Claude to keep handover notes in `~/.claude/CLAUDE.md`, so another session can take over at any time.
-- `machine-info.sh`: prints OS, cores and free disk space.
+[`examples/session_hook.user.sh`](examples/session_hook.user.sh) is a ready-to-use user hook. Copy it as-is:
+
+```bash
+cp examples/session_hook.user.sh ~/.claude/session_hook.user.sh
+```
+
+Settings at the top of the file (`yes`/`no`; they can also be set in `service.env`):
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `HANDOVER` | `yes` | Claude keeps a Handover section in `~/.claude/CLAUDE.md` current (state, open tasks, where things live), so another session can take over at any time. Longer write-ups go into Claude artifacts, linked there and read only when needed. |
+| `TOPICS` | `yes` | Special subjects (a script, a service, a project) get their own file `~/.claude/topics/<topic>.md` (first line `# <title>`), so `CLAUDE.md` stays short. At start the hook lists them and Claude offers to load one. |
+| `MACHINE_INFO` | `yes` | Prints OS, cores and free disk space. |
+| `TELL_USER` | `yes` | Claude says once, in its first reply, which features are on and how to opt out. |
 
 ## What the installer writes
 
