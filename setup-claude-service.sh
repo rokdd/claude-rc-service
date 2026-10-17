@@ -13,6 +13,7 @@ GIT_REPO_URL="${GIT_REPO_URL-https://github.com/rokdd/claude-rc-service.git}"
 WORK_DIR="${WORK_DIR:-$HOME}"
 CLAUDE_MODE="${CLAUDE_MODE:-server}"   # server = machine shows up as a computer in claude.ai/code; session = one continued interactive session
 CLAUDE_NAME="${CLAUDE_NAME:-$(hostname -s)}"
+CLAUDE_PERMISSION_MODE="${CLAUDE_PERMISSION_MODE-bypassPermissions}"   # allow everything without asking; empty = Claude's normal questions
 if [[ "$OSTYPE" == "darwin"* ]]; then KEEP_AWAKE="${KEEP_AWAKE:-yes}"; else KEEP_AWAKE="${KEEP_AWAKE:-no}"; fi   # yes = block idle sleep while the session runs
 TARGET_DIR="$HOME/.claude"
 REPO_DIR="$HOME/.claude-service-repo"
@@ -100,8 +101,9 @@ WORK_DIR="$WORK_DIR"
 KEEP_AWAKE="$KEEP_AWAKE"
 # Optional repo kept as a read-only copy in ~/.claude-service-repo (empty = off)
 GIT_REPO_URL="$GIT_REPO_URL"
-# Optional, server mode: acceptEdits, auto, bypassPermissions, default, dontAsk, plan
-CLAUDE_PERMISSION_MODE=""
+# Permission mode for the sessions: bypassPermissions (allow everything, no questions), acceptEdits, auto, default, dontAsk, plan.
+# Empty = Claude's normal mode (asks before most tools).
+CLAUDE_PERMISSION_MODE="$CLAUDE_PERMISSION_MODE"
 EOF
     echo "Wrote $ENV_FILE"
 else
@@ -131,7 +133,7 @@ echo "[$(date)] Watchdog started"
 
 while true; do
     # Defaults, then the config file
-    CLAUDE_MODE=server; CLAUDE_NAME=$(hostname -s); WORK_DIR="$HOME"; GIT_REPO_URL=""; CLAUDE_PERMISSION_MODE=""; KEEP_AWAKE=no
+    CLAUDE_MODE=server; CLAUDE_NAME=$(hostname -s); WORK_DIR="$HOME"; GIT_REPO_URL=""; CLAUDE_PERMISSION_MODE=bypassPermissions; KEEP_AWAKE=no
     [ -f "$ENV_FILE" ] && . "$ENV_FILE"
 
     # Keep the log small
@@ -191,10 +193,10 @@ if changed:
     os.replace(tmp, path)
     print("Pre-answered for " + wd + ": " + ", ".join(changed))
 PY
+            PM=""; [ -n "$CLAUDE_PERMISSION_MODE" ] && PM="--permission-mode $CLAUDE_PERMISSION_MODE"
             if [ "$CLAUDE_MODE" = "session" ]; then
-                CMD="'$CLAUDE' --continue --remote-control || '$CLAUDE' --remote-control"
+                CMD="'$CLAUDE' --continue --remote-control $PM || '$CLAUDE' --remote-control $PM"
             else
-                PM=""; [ -n "$CLAUDE_PERMISSION_MODE" ] && PM="--permission-mode $CLAUDE_PERMISSION_MODE"
                 CMD="'$CLAUDE' remote-control --name '$CLAUDE_NAME' $PM --continue || '$CLAUDE' remote-control --name '$CLAUDE_NAME' $PM"
             fi
             PREFIX=""

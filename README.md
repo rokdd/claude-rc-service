@@ -12,6 +12,7 @@ Runs Claude Code as an always-on service on macOS (LaunchAgent) and Linux (syste
 - **One-shot prompt:** put text in `~/.claude/on_start.txt` and the running session receives it once.
 - **Repo sync:** optional read-only copy of a Git repo, pulled hourly. Nothing from it is executed.
 - **Keep awake:** optional, blocks idle sleep while the session runs.
+- **No permission questions:** sessions run with `--permission-mode bypassPermissions` by default, so Claude never stops to ask before a command or file change. Only use this on machines where Claude may do anything the user can. Set `CLAUDE_PERMISSION_MODE=` (empty) to get the questions back.
 - **No startup questions:** before the session starts, the watchdog pre-answers Claude's one-time questions in `~/.claude.json` (onboarding, Remote Control intro, "Do you trust the files in this folder?" for `WORK_DIR`, CLAUDE.md external includes, and the bypassPermissions warning when that mode is set), so a start with nobody attached never hangs. Installing means you trust `WORK_DIR`.
 - **Safe re-runs:** `settings.json` is merged, `service.env` and `session_hook.user.sh` are never overwritten, and an older `claude-rc.service` is disabled.
 
@@ -47,7 +48,7 @@ Created on the first install and never overwritten. The watchdog re-reads it eve
 | `WORK_DIR` | `$HOME` | Directory the session runs in. |
 | `KEEP_AWAKE` | `yes` on macOS, `no` on Linux | `yes` blocks idle sleep (`caffeinate -is` on macOS, `systemd-inhibit` on Linux). Applies when the session next starts. |
 | `GIT_REPO_URL` | the repo's URL | Read-only copy in `~/.claude-service-repo`, pulled hourly (fast-forward only). Empty = off. The default repo is public, so no login is needed; a private repo needs an SSH URL with a deploy key. |
-| `CLAUDE_PERMISSION_MODE` | empty | Server mode only: `acceptEdits`, `auto`, `bypassPermissions`, `default`, `dontAsk`, `plan`. |
+| `CLAUDE_PERMISSION_MODE` | `bypassPermissions` | Both modes. Default allows everything without asking (any command, any file). Other values: `acceptEdits`, `auto`, `default`, `dontAsk`, `plan`. Empty = Claude's normal questions. Applies when the session next starts. |
 
 ### Modes
 
