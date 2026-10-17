@@ -18,7 +18,7 @@ Sign in once with `claude`, then check `~/.claude/logs/daemon.log` and `tmux att
 
 ## Config: `~/.claude/service.env`
 
-Created on the first install and never overwritten. The watchdog re-reads it every minute, so changes apply without re-running the installer.
+Created on the first install and never overwritten. The default repo URL is set at the top of `setup-claude-service.sh` (`GIT_REPO_URL`); when the repo moves, change that one line (or `GIT_REPO_URL` in an existing `service.env`). The watchdog re-reads it every minute, so changes apply without re-running the installer.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |

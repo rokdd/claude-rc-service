@@ -6,8 +6,8 @@ set -e
 # === FIRST-INSTALL DEFAULTS (override with environment variables) ===
 # They are written once to ~/.claude/service.env; edit that file afterwards, the watchdog re-reads it every minute.
 SCRIPT_VERSION="2.0.0"
-# Repo with shared hooks/tasks. Private repo: use an SSH URL with a deploy key, or a URL with a read-only token.
-# Leave empty to skip syncing.
+# Repo with shared hooks/tasks: the only place that names it. Change this line when the repo moves (e.g. to GitHub).
+# Private repo: use an SSH URL with a deploy key, or a URL with a read-only token. Empty = no syncing.
 GIT_REPO_URL="${GIT_REPO_URL:-https://git.example.com/robert/claude-rc-service.git}"
 # Directory the session runs in (its conversations are continued per directory).
 WORK_DIR="${WORK_DIR:-$HOME}"
