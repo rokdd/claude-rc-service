@@ -100,3 +100,7 @@ Settings at the top of the file (`yes`/`no`; they can also be set in `service.en
 - `~/.claude/on_start.txt`: if present, its text is sent once to the session, then renamed to `.processed`.
 - Linux: `~/.config/systemd/user/claude.service`, plus linger via sudo (only if not already on).
 - macOS: `~/Library/LaunchAgents/com.anthropic.claude.plist`.
+
+## License and mirror
+
+GPL-3.0, see `LICENSE`. The main repo is https://github.com/rokdd/claude-rc-service; https://github.com/rokdd/claude-rc-service is a read-only mirror of it (changes go to the Forgejo repo).
