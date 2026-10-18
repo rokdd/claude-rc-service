@@ -5,7 +5,7 @@ set -e
 
 # === FIRST-INSTALL DEFAULTS (override with environment variables) ===
 # They are written once to ~/.claude/service.env; edit that file afterwards, the watchdog re-reads it every minute.
-SCRIPT_VERSION="2.1.0"
+SCRIPT_VERSION="2.2.0"
 # Repo with shared hooks/tasks: the only place that names it. Change this line when the repo moves (e.g. to GitHub).
 # Private repo: use an SSH URL with a deploy key, or a URL with a read-only token. Empty = no syncing.
 GIT_REPO_URL="${GIT_REPO_URL-https://github.com/rokdd/claude-rc-service.git}"
@@ -151,6 +151,11 @@ while true; do
         now=$(date +%s)
         if [ -n "$GIT_REPO_URL" ] && [ $((now - last_sync)) -ge "$SYNC_EVERY" ]; then
             if [ -d "$REPO_DIR/.git" ]; then
+                # GIT_REPO_URL changed in service.env: point the copy at the new URL (same history, e.g. a mirror)
+                if [ "$(git -C "$REPO_DIR" remote get-url origin 2>/dev/null)" != "$GIT_REPO_URL" ]; then
+                    echo "[$(date)] Repo URL changed, now $GIT_REPO_URL"
+                    git -C "$REPO_DIR" remote set-url origin "$GIT_REPO_URL"
+                fi
                 git -C "$REPO_DIR" pull --ff-only || echo "Git pull failed"
             else
                 git clone "$GIT_REPO_URL" "$REPO_DIR" || echo "Git clone failed"
