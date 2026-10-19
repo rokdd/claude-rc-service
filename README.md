@@ -49,6 +49,7 @@ Created on the first install and never overwritten. The watchdog re-reads it eve
 | `KEEP_AWAKE` | `yes` on macOS, `no` on Linux | `yes` blocks idle sleep (`caffeinate -is` on macOS, `systemd-inhibit` on Linux). Applies when the session next starts. |
 | `GIT_REPO_URL` | the repo's URL | Read-only copy in `~/.claude-service-repo`, pulled hourly (fast-forward only). Empty = off. Changing it moves the existing copy to the new URL at the next sync (needs the same history, e.g. a mirror). The default repo is public, so no login is needed; a private repo needs an SSH URL with a deploy key. |
 | `CLAUDE_PERMISSION_MODE` | `bypassPermissions` | Both modes. Default allows everything without asking (any command, any file). Other values: `acceptEdits`, `auto`, `default`, `dontAsk`, `plan`. Empty = Claude's normal questions. Applies when the session next starts. |
+| `CLAUDE_DEBUG` | `no` | `yes` makes Claude write a debug log to `~/.claude/logs/rc-debug.log` (both modes). Turn it on to find out why Remote Control drops. Applies when the session next starts; a file over 20 MB is moved to `rc-debug.log.1` by the watchdog. |
 
 ### Modes
 
@@ -63,6 +64,15 @@ Created on the first install and never overwritten. The watchdog re-reads it eve
    - `session` mode: `claude --continue --remote-control` resumes the last conversation of `WORK_DIR`, however old. Only if there is none does it start a new one.
    - `server` mode: `claude remote-control --continue` reattaches to the last session if it is from the last ~4 hours; otherwise the machine comes back as a computer in claude.ai/code with no session open, and you start or pick one there.
 4. Remote Control itself reconnects after short network drops while Claude keeps running, so the session stays the same.
+
+### Machine not listed in claude.ai/code
+
+The watchdog only checks that the tmux session exists, not that Remote Control is still registered. A process can keep running after network drops and still be missing from the list (seen once on a Raspberry Pi after several short "Reconnected" messages; the cause is not confirmed). To get the machine back and to find the cause:
+
+1. Restart the session: `tmux kill-session -t claude-service`. The watchdog starts a new one within a minute and, in `server` mode, reattaches a session from the last ~4 hours.
+2. Set `CLAUDE_DEBUG="yes"` in `~/.claude/service.env` and restart once. The next time the machine disappears, look at the end of `~/.claude/logs/rc-debug.log` (and `tmux capture-pane -pt claude-service -S -200`) for the last connection or registration error before restarting.
+3. Check `~/.claude/logs/daemon.log` for "No connection to api.anthropic.com" around that time. Short gaps there are normal on Wi-Fi.
+4. If the machine is on Wi-Fi, switching to a cable or turning off Wi-Fi power saving (`iw dev wlan0 set power_save off`) removes most drops.
 
 Conversations are stored per directory in `~/.claude/projects/`, so keep `WORK_DIR` fixed if you want to resume. Anything a resumed or new session must know can go into `~/.claude/CLAUDE.md` or the user hook below.
 

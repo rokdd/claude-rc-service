@@ -5,7 +5,7 @@ set -e
 
 # === FIRST-INSTALL DEFAULTS (override with environment variables) ===
 # They are written once to ~/.claude/service.env; edit that file afterwards, the watchdog re-reads it every minute.
-SCRIPT_VERSION="2.2.0"
+SCRIPT_VERSION="2.3.0"
 # Repo with shared hooks/tasks: the only place that names it. Change this line when the repo moves (e.g. to GitHub).
 # Private repo: use an SSH URL with a deploy key, or a URL with a read-only token. Empty = no syncing.
 GIT_REPO_URL="${GIT_REPO_URL-https://github.com/rokdd/claude-rc-service.git}"
@@ -14,6 +14,7 @@ WORK_DIR="${WORK_DIR:-$HOME}"
 CLAUDE_MODE="${CLAUDE_MODE:-server}"   # server = machine shows up as a computer in claude.ai/code; session = one continued interactive session
 CLAUDE_NAME="${CLAUDE_NAME:-$(hostname -s)}"
 CLAUDE_PERMISSION_MODE="${CLAUDE_PERMISSION_MODE-bypassPermissions}"   # allow everything without asking; empty = Claude's normal questions
+CLAUDE_DEBUG="${CLAUDE_DEBUG:-no}"   # yes = Claude writes a debug log to ~/.claude/logs/rc-debug.log (to find out why Remote Control drops)
 if [[ "$OSTYPE" == "darwin"* ]]; then KEEP_AWAKE="${KEEP_AWAKE:-yes}"; else KEEP_AWAKE="${KEEP_AWAKE:-no}"; fi   # yes = block idle sleep while the session runs
 TARGET_DIR="$HOME/.claude"
 REPO_DIR="$HOME/.claude-service-repo"
@@ -104,6 +105,8 @@ GIT_REPO_URL="$GIT_REPO_URL"
 # Permission mode for the sessions: bypassPermissions (allow everything, no questions), acceptEdits, auto, default, dontAsk, plan.
 # Empty = Claude's normal mode (asks before most tools).
 CLAUDE_PERMISSION_MODE="$CLAUDE_PERMISSION_MODE"
+# Debug log of the Claude process in ~/.claude/logs/rc-debug.log (yes/no), for connection problems. Applies when the session next starts.
+CLAUDE_DEBUG="$CLAUDE_DEBUG"
 EOF
     echo "Wrote $ENV_FILE"
 else
@@ -133,11 +136,14 @@ echo "[$(date)] Watchdog started"
 
 while true; do
     # Defaults, then the config file
-    CLAUDE_MODE=server; CLAUDE_NAME=$(hostname -s); WORK_DIR="$HOME"; GIT_REPO_URL=""; CLAUDE_PERMISSION_MODE=bypassPermissions; KEEP_AWAKE=no
+    CLAUDE_MODE=server; CLAUDE_NAME=$(hostname -s); WORK_DIR="$HOME"; GIT_REPO_URL=""; CLAUDE_PERMISSION_MODE=bypassPermissions; KEEP_AWAKE=no; CLAUDE_DEBUG=no
     [ -f "$ENV_FILE" ] && . "$ENV_FILE"
 
     # Keep the log small
     [ "$(wc -c < "$LOG" 2>/dev/null || echo 0)" -gt 1000000 ] && tail -n 500 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG"
+    # The debug log is written by Claude itself; when it gets big, keep the old part as .1 (applies at the next start)
+    DLOG="$TARGET_DIR/logs/rc-debug.log"
+    [ "$(wc -c < "$DLOG" 2>/dev/null || echo 0)" -gt 20000000 ] && mv -f "$DLOG" "$DLOG.1"
 
     if [ -z "$CLAUDE" ] || ! "$CLAUDE" --version >/dev/null 2>&1; then
         echo "Claude binary missing or broken, retrying in 60 s"
@@ -199,6 +205,7 @@ if changed:
     print("Pre-answered for " + wd + ": " + ", ".join(changed))
 PY
             PM=""; [ -n "$CLAUDE_PERMISSION_MODE" ] && PM="--permission-mode $CLAUDE_PERMISSION_MODE"
+            [ "$CLAUDE_DEBUG" = "yes" ] && PM="$PM --debug-file $TARGET_DIR/logs/rc-debug.log"
             if [ "$CLAUDE_MODE" = "session" ]; then
                 CMD="'$CLAUDE' --continue --remote-control $PM || '$CLAUDE' --remote-control $PM"
             else
