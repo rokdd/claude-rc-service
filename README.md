@@ -113,4 +113,4 @@ Settings at the top of the file (`yes`/`no`; they can also be set in `service.en
 
 ## License and mirror
 
-GPL-3.0, see `LICENSE`. Changes are made in https://github.com/rokdd/claude-rc-service; Forgejo mirrors them to https://github.com/rokdd/claude-rc-service, which is the URL installs pull from (reachable everywhere, no login).
+GPL-3.0, see `LICENSE`. The repo is https://github.com/rokdd/claude-rc-service, which is the URL installs pull from (reachable everywhere, no login).
