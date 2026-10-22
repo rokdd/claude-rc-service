@@ -24,6 +24,8 @@ Plain install with the defaults:
 ./setup-claude-service.sh
 ```
 
+If your copy lost the executable bit (zip download, some file systems), run `bash setup-claude-service.sh` instead; it takes the same variables.
+
 With your own first-install values (written to `service.env` once; to change them later, edit that file):
 
 ```bash
