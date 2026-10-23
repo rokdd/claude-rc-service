@@ -5,7 +5,7 @@ set -e
 
 # === FIRST-INSTALL DEFAULTS (override with environment variables) ===
 # They are written once to ~/.claude/service.env; edit that file afterwards, the watchdog re-reads it every minute.
-SCRIPT_VERSION="2.3.0"
+SCRIPT_VERSION="2.4.0"
 # Repo with shared hooks/tasks: the only place that names it. Change this line when the repo moves (e.g. to GitHub).
 # Private repo: use an SSH URL with a deploy key, or a URL with a read-only token. Empty = no syncing.
 GIT_REPO_URL="${GIT_REPO_URL-https://github.com/rokdd/claude-rc-service.git}"
@@ -74,7 +74,10 @@ except Exception:
     s = {}
 perm = s.setdefault("permissions", {})
 allow = perm.setdefault("allow", [])
-for t in ["Bash", "Read", "Edit", "Write", "WebFetch", "WebSearch"]:
+for t in ["Bash", "Read", "Edit", "Write", "WebFetch", "WebSearch",
+          # sessions on different machines talk to each other (send_message) and read each other's status
+          "mcp__claude-code-remote__send_message", "mcp__claude-code-remote__list_events",
+          "mcp__claude-code-remote__get_session", "mcp__claude-code-remote__list_sessions"]:
     if t not in allow:
         allow.append(t)
 cmd = "/bin/bash " + hook

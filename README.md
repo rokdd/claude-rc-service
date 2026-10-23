@@ -107,7 +107,7 @@ Settings at the top of the file (`yes`/`no`; they can also be set in `service.en
 
 - `~/.local/bin/claude-bootstrap.sh`: the watchdog.
 - `~/.claude/service.env`: the config above.
-- `~/.claude/settings.json`: merged, not replaced. Adds basic allow rules and the hook.
+- `~/.claude/settings.json`: merged, not replaced. Adds basic allow rules (including the claude-code-remote tools send_message, list_events, get_session, list_sessions, so sessions on different machines can message each other) and the hook.
 - `~/.claude.json`: the watchdog sets only the startup-question flags: `hasCompletedOnboarding`, `remoteDialogSeen`, `bypassPermissionsModeAccepted` (bypassPermissions mode only), and for `WORK_DIR` (also after you change it) `hasTrustDialogAccepted` and the CLAUDE.md includes flags. Nothing else. Signing in (`claude` once) is still manual.
 - `~/.claude/on_start.txt`: if present, its text is sent once to the session, then renamed to `.processed`.
 - Linux: `~/.config/systemd/user/claude.service`, plus linger via sudo (only if not already on).
