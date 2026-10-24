@@ -52,6 +52,8 @@ Created on the first install and never overwritten. The watchdog re-reads it eve
 | `GIT_REPO_URL` | the repo's URL | Read-only copy in `~/.claude-service-repo`, pulled hourly (fast-forward only). Empty = off. Changing it moves the existing copy to the new URL at the next sync (needs the same history, e.g. a mirror). The default repo is public, so no login is needed; a private repo needs an SSH URL with a deploy key. |
 | `CLAUDE_PERMISSION_MODE` | `bypassPermissions` | Both modes. Default allows everything without asking (any command, any file). Other values: `acceptEdits`, `auto`, `default`, `dontAsk`, `plan`. Empty = Claude's normal questions. Applies when the session next starts. |
 | `CLAUDE_DEBUG` | `no` | `yes` makes Claude write a debug log to `~/.claude/logs/rc-debug.log` (both modes). Turn it on to find out why Remote Control drops. Applies when the session next starts; a file over 20 MB is moved to `rc-debug.log.1` by the watchdog. |
+| `INBOX_WATCH` | `no` | `yes` makes the watchdog (once a minute) look in `INBOX_DIR` and, for each new or changed file, send the session one line with the file names. Only names matching `[A-Za-z0-9._-]` are announced, the contents are never typed into the session, and the line tells Claude to treat them as data from the sender. The first run only remembers the files already there. State: `~/.claude/state/inbox-seen`. |
+| `INBOX_DIR` | `~/inbox` | Directory for `INBOX_WATCH`. |
 
 ### Modes
 
@@ -103,12 +105,17 @@ Settings at the top of the file (`yes`/`no`; they can also be set in `service.en
 | `MACHINE_INFO` | `yes` | Prints OS, cores and free disk space. |
 | `TELL_USER` | `yes` | Claude says once, in its first reply, which features are on and how to opt out. |
 
+## Re-running the installer
+
+Safe at any time: `service.env` is kept (new settings are appended with their default), the watchdog is replaced atomically and `claude.service` is restarted, which ends the running tmux session (it is continued by `--continue`, see above). Run it from inside the session with `NO_RESTART=yes bash setup-claude-service.sh`; the new watchdog then runs from the next restart.
+
 ## What the installer writes
 
 - `~/.local/bin/claude-bootstrap.sh`: the watchdog.
 - `~/.claude/service.env`: the config above.
 - `~/.claude/settings.json`: merged, not replaced. Adds basic allow rules (including the claude-code-remote tools send_message, list_events, get_session, list_sessions, so sessions on different machines can message each other) and the hook.
 - `~/.claude.json`: the watchdog sets only the startup-question flags: `hasCompletedOnboarding`, `remoteDialogSeen`, `bypassPermissionsModeAccepted` (bypassPermissions mode only), and for `WORK_DIR` (also after you change it) `hasTrustDialogAccepted` and the CLAUDE.md includes flags. Nothing else. Signing in (`claude` once) is still manual.
+- `~/.claude/state/inbox-seen`: written by the watchdog when `INBOX_WATCH=yes`.
 - `~/.claude/on_start.txt`: if present, its text is sent once to the session, then renamed to `.processed`.
 - Linux: `~/.config/systemd/user/claude.service`, plus linger via sudo (only if not already on).
 - macOS: `~/Library/LaunchAgents/com.anthropic.claude.plist`.
