@@ -5,7 +5,7 @@ set -e
 
 # === FIRST-INSTALL DEFAULTS (override with environment variables) ===
 # They are written once to ~/.claude/service.env; edit that file afterwards, the watchdog re-reads it every minute.
-SCRIPT_VERSION="2.6.1"
+SCRIPT_VERSION="2.6.2"
 # Repo with shared hooks/tasks: the only place that names it. Change this line when the repo moves (e.g. to GitHub).
 # Private repo: use an SSH URL with a deploy key, or a URL with a read-only token. Empty = no syncing.
 GIT_REPO_URL="${GIT_REPO_URL-https://github.com/rokdd/claude-rc-service.git}"
@@ -169,6 +169,7 @@ inbox_check() {
         # Remote Control session for this delivery; it shows up in claude.ai/code under the name below
         local name="inbox $(hostname -s) $(date '+%m-%d %H:%M')" pm=""
         [ -n "$CLAUDE_PERMISSION_MODE" ] && pm="--permission-mode $(printf '%q' "$CLAUDE_PERMISSION_MODE")"
+        msg="$msg When you are done, note the outcome in the Handover section of ~/.claude/CLAUDE.md (if it matters), then close this session yourself by running: tmux kill-window -t \"\$TMUX_PANE\""
         echo "[$(date)] Inbox: new session '$name' for$new"
         "$TMUX" new-window -d -t "$SESSION" -n "inbox-$(date +%H%M%S)" -c "$WORK_DIR" \
             "$(printf '%q' "$CLAUDE") $pm --remote-control $(printf '%q' "$name") $(printf '%q' "$msg")"
