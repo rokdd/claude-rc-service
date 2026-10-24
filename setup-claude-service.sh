@@ -5,7 +5,7 @@ set -e
 
 # === FIRST-INSTALL DEFAULTS (override with environment variables) ===
 # They are written once to ~/.claude/service.env; edit that file afterwards, the watchdog re-reads it every minute.
-SCRIPT_VERSION="2.6.0"
+SCRIPT_VERSION="2.6.1"
 # Repo with shared hooks/tasks: the only place that names it. Change this line when the repo moves (e.g. to GitHub).
 # Private repo: use an SSH URL with a deploy key, or a URL with a read-only token. Empty = no syncing.
 GIT_REPO_URL="${GIT_REPO_URL-https://github.com/rokdd/claude-rc-service.git}"
@@ -248,6 +248,20 @@ if changed:
     os.chmod(tmp, os.stat(path).st_mode if os.path.exists(path) else 0o600)
     os.replace(tmp, path)
     print("Pre-answered for " + wd + ": " + ", ".join(changed))
+# Interactive sessions in bypass mode (inbox sessions, session mode) show a warning dialog unless this setting is on;
+# bypassPermissionsModeAccepted above is the older name, Claude Code 2.1 reads skipDangerousModePermissionPrompt.
+if pm == "bypassPermissions":
+    sp = os.path.join(os.path.dirname(path), ".claude", "settings.json")
+    try:
+        st = json.load(open(sp))
+    except FileNotFoundError:
+        st = {}
+    if st.get("skipDangerousModePermissionPrompt") is not True:
+        st["skipDangerousModePermissionPrompt"] = True
+        with open(sp + ".tmp", "w") as f:
+            json.dump(st, f, indent=2)
+        os.replace(sp + ".tmp", sp)
+        print("Set skipDangerousModePermissionPrompt in " + sp)
 PY
             PM=""; [ -n "$CLAUDE_PERMISSION_MODE" ] && PM="--permission-mode $CLAUDE_PERMISSION_MODE"
             [ "$CLAUDE_DEBUG" = "yes" ] && PM="$PM --debug-file $TARGET_DIR/logs/rc-debug.log"
