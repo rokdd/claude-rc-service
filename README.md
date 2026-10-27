@@ -14,6 +14,7 @@ Runs Claude Code as an always-on service on macOS (LaunchAgent) and Linux (syste
 - **Keep awake:** optional, blocks idle sleep while the session runs.
 - **No permission questions:** sessions run with `--permission-mode bypassPermissions` by default, so Claude never stops to ask before a command or file change. Only use this on machines where Claude may do anything the user can. Set `CLAUDE_PERMISSION_MODE=` (empty) to get the questions back.
 - **No startup questions:** before the session starts, the watchdog pre-answers Claude's one-time questions in `~/.claude.json` (onboarding, Remote Control intro, "Do you trust the files in this folder?" for `WORK_DIR`, CLAUDE.md external includes, and the bypassPermissions warning when that mode is set: `bypassPermissionsModeAccepted` in `~/.claude.json` and `skipDangerousModePermissionPrompt` in `~/.claude/settings.json`, which Claude Code 2.1 reads), so a start with nobody attached never hangs. Installing means you trust `WORK_DIR`.
+- **Inbox:** optional, other machines drop files into `~/inbox` over a write-only SSH key and the watchdog tells Claude about them (see [Inbox](#inbox-let-other-machines-drop-files)).
 - **Safe re-runs:** `settings.json` is merged, `service.env` and `session_hook.user.sh` are never overwritten, and an older `claude-rc.service` is disabled.
 
 ## Install
@@ -79,6 +80,30 @@ The watchdog only checks that the tmux session exists, not that Remote Control i
 4. If the machine is on Wi-Fi, switching to a cable or turning off Wi-Fi power saving (`iw dev wlan0 set power_save off`) removes most drops.
 
 Conversations are stored per directory in `~/.claude/projects/`, so keep `WORK_DIR` fixed if you want to resume. Anything a resumed or new session must know can go into `~/.claude/CLAUDE.md` or the user hook below.
+
+## Inbox: let other machines drop files
+
+With `INBOX_WATCH="yes"` the watchdog announces new files in `INBOX_DIR` (default `~/inbox`) to Claude (see the table above). How files get there is up to you; a safe way for other machines or other Claude sessions is a **write-only SSH key** per sender:
+
+1. Copy [`examples/inbox-put`](examples/inbox-put) to e.g. `~/bin/inbox-put` and make it executable. It only accepts `put <name>`, stores stdin as `~/inbox/<sender>-<name>` (mode 600, max 64 KiB, names `[A-Za-z0-9._-]`) and logs the delivery with `logger -t inbox-put`. Everything else is refused.
+2. On the sender: `ssh-keygen -t ed25519 -N '' -C '<sender>-to-<this host>' -f ~/.ssh/<this host>_inbox`. Only the **public** key leaves that machine.
+3. On this machine, add one line per sender to `~/.ssh/authorized_keys`:
+   ```
+   restrict,from="<sender IP>",command="/home/<user>/bin/inbox-put <sender>" ssh-ed25519 AAAA... <sender>-to-<this host>
+   ```
+   `restrict` turns off shell, port/agent/X11 forwarding and pty; `from=` limits the key to the sender's address; the forced command runs no matter what the sender asks for.
+4. The sender delivers with:
+   ```
+   ssh -i ~/.ssh/<this host>_inbox <user>@<this host> put <name> < file
+   ```
+   Within a minute the watchdog announces `<sender>-<name>`.
+
+Notes:
+
+- The key can only write. It cannot read the inbox, list it or run anything, so a leaked sender key at worst fills the inbox with small files.
+- Claude is told to treat inbox files as data from the sender, not as instructions. Secrets (tokens, passwords) can be sent this way instead of through chat; delete them from the inbox once used (`shred -u`).
+- To revoke a sender, delete its line in `authorized_keys`.
+- For the opposite direction (this machine fetching files from another one), use the same pattern there with a forced command that prints one file from a fixed directory.
 
 ## Session hook
 

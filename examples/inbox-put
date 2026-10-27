@@ -1,0 +1,26 @@
+#!/bin/bash
+# Write-only inbox for other machines (see README, "Inbox: let other machines drop files").
+# Use as SSH forced command in ~/.ssh/authorized_keys of the service user:
+#   restrict,from="<sender IP>",command="/home/<user>/bin/inbox-put <sender>" ssh-ed25519 AAAA... <comment>
+# The sender runs:  ssh -i <key> <user>@<this host> put <name> < file
+# and the file is stored as $INBOX_DIR/<sender>-<name> (mode 600, max 64 KiB). Nothing else is
+# allowed: no shell, no reading, no other commands. Without a sender argument names are kept as is.
+set -euo pipefail
+umask 077
+INBOX_DIR=${INBOX_DIR:-$HOME/inbox}
+sender=${1:-}
+read -r cmd name extra <<< "${SSH_ORIGINAL_COMMAND:-}"
+if [ "$cmd" != put ] || [ -n "${extra:-}" ] || ! [[ "${name:-}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; then
+    echo "usage: ssh <user>@<host> put <name> < file" >&2
+    exit 2
+fi
+mkdir -p "$INBOX_DIR"
+tmp=$(mktemp "$INBOX_DIR/.put.XXXXXX")
+head -c 65537 > "$tmp"
+if [ "$(stat -c %s "$tmp" 2>/dev/null || stat -f %z "$tmp")" -gt 65536 ]; then
+    rm -f "$tmp"; echo "too big (max 64 KiB)" >&2; exit 3
+fi
+[ -z "$sender" ] || name="$sender-$name"
+mv -f "$tmp" "$INBOX_DIR/$name"
+logger -t inbox-put "${sender:-unnamed sender} stored $INBOX_DIR/$name" 2>/dev/null || true
+echo "stored $name"
