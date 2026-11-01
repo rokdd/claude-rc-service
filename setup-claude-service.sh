@@ -5,7 +5,7 @@ set -e
 
 # === FIRST-INSTALL DEFAULTS (override with environment variables) ===
 # They are written once to ~/.claude/service.env; edit that file afterwards, the watchdog re-reads it every minute.
-SCRIPT_VERSION="2.7.0"
+SCRIPT_VERSION="2.8.0"
 # Repo with shared hooks/tasks: the only place that names it. Change this line when the repo moves (e.g. to GitHub).
 # Private repo: use an SSH URL with a deploy key, or a URL with a read-only token. Empty = no syncing.
 GIT_REPO_URL="${GIT_REPO_URL-https://github.com/rokdd/claude-rc-service.git}"
@@ -17,6 +17,7 @@ CLAUDE_PERMISSION_MODE="${CLAUDE_PERMISSION_MODE-bypassPermissions}"   # allow e
 CLAUDE_DEBUG="${CLAUDE_DEBUG:-no}"   # yes = Claude writes a debug log to ~/.claude/logs/rc-debug.log (to find out why Remote Control drops)
 INBOX_WATCH="${INBOX_WATCH:-no}"   # yes = the watchdog tells the session when files appear in INBOX_DIR (file names only)
 INBOX_DIR="${INBOX_DIR:-$HOME/inbox}"
+CLAUDE_TOKEN_FILE="${CLAUDE_TOKEN_FILE:-}"   # file with a long-lived token from "claude setup-token"; empty = normal /login
 if [[ "$OSTYPE" == "darwin"* ]]; then KEEP_AWAKE="${KEEP_AWAKE:-yes}"; else KEEP_AWAKE="${KEEP_AWAKE:-no}"; fi   # yes = block idle sleep while the session runs
 TARGET_DIR="$HOME/.claude"
 REPO_DIR="$HOME/.claude-service-repo"
@@ -121,6 +122,7 @@ fi
 add_setting() { grep -q "^$1=" "$ENV_FILE" || printf '%s\n%s="%s"\n' "$2" "$1" "$3" >> "$ENV_FILE"; }
 add_setting INBOX_WATCH "# yes = tell the session when new or changed files appear in INBOX_DIR (it gets one line with the file names, never the contents)" "$INBOX_WATCH"
 add_setting INBOX_DIR "# Directory watched for the inbox (files dropped by other machines or scripts)" "$INBOX_DIR"
+add_setting CLAUDE_TOKEN_FILE "# File (chmod 600) with a long-lived token from 'claude setup-token', used as CLAUDE_CODE_OAUTH_TOKEN instead of the /login session. Empty = /login" "$CLAUDE_TOKEN_FILE"
 
 # 5. Watchdog script (written to a temp file and moved into place: a running copy keeps its old content)
 cat > "$HOME/.local/bin/claude-bootstrap.sh.new" <<'EOF'
@@ -138,6 +140,13 @@ running_mode=""
 
 mkdir -p "$TARGET_DIR/logs"
 exec >> "$TARGET_DIR/logs/daemon.log" 2>&1
+
+# Shell snippet that exports the long-lived token from CLAUDE_TOKEN_FILE (the token itself never appears in a command line)
+token_prefix() {
+    [ -n "$CLAUDE_TOKEN_FILE" ] || return 0
+    if [ -r "$CLAUDE_TOKEN_FILE" ]; then printf 'export CLAUDE_CODE_OAUTH_TOKEN="$(cat %q)"; ' "$CLAUDE_TOKEN_FILE"
+    else echo "[$(date)] CLAUDE_TOKEN_FILE $CLAUDE_TOKEN_FILE is not readable: using the normal login" >&2; fi
+}
 
 # Inbox: announce new or changed files in INBOX_DIR to the session, once each. Only the file names go into
 # the session (names are limited to [A-Za-z0-9._-]); the files are read by Claude itself.
@@ -172,7 +181,7 @@ inbox_check() {
         msg="$msg When you are done, note the outcome in the Handover section of ~/.claude/CLAUDE.md (if it matters), then close this session yourself by running: tmux kill-window -t \"\$TMUX_PANE\""
         echo "[$(date)] Inbox: new session '$name' for$new"
         "$TMUX" new-window -d -t "$SESSION" -n "inbox-$(date +%H%M%S)" -c "$WORK_DIR" \
-            "$(printf '%q' "$CLAUDE") $pm --remote-control $(printf '%q' "$name") $(printf '%q' "$msg")"
+            "$(token_prefix)$(printf '%q' "$CLAUDE") $pm --remote-control $(printf '%q' "$name") $(printf '%q' "$msg")"
     fi
 }
 
@@ -182,7 +191,7 @@ echo "[$(date)] Watchdog started"
 
 while true; do
     # Defaults, then the config file
-    CLAUDE_MODE=server; CLAUDE_NAME=$(hostname -s); WORK_DIR="$HOME"; GIT_REPO_URL=""; CLAUDE_PERMISSION_MODE=bypassPermissions; KEEP_AWAKE=no; CLAUDE_DEBUG=no; INBOX_WATCH=no; INBOX_DIR="$HOME/inbox"; SKIP_ARCHIVED=yes
+    CLAUDE_MODE=server; CLAUDE_NAME=$(hostname -s); WORK_DIR="$HOME"; GIT_REPO_URL=""; CLAUDE_PERMISSION_MODE=bypassPermissions; KEEP_AWAKE=no; CLAUDE_DEBUG=no; INBOX_WATCH=no; INBOX_DIR="$HOME/inbox"; SKIP_ARCHIVED=yes; CLAUDE_TOKEN_FILE=""
     [ -f "$ENV_FILE" ] && . "$ENV_FILE"
 
     # Keep the log small
@@ -295,6 +304,7 @@ PY
                 elif command -v systemd-inhibit >/dev/null; then PREFIX="systemd-inhibit --what=idle:sleep --who=claude-service --why=Claude-background-session"
                 else echo "KEEP_AWAKE=yes but neither caffeinate nor systemd-inhibit found"; fi
             fi
+            CMD="$(token_prefix)$CMD"
             if [ -n "$PREFIX" ]; then CMD="$PREFIX bash -c $(printf '%q' "$CMD")"; fi
             "$TMUX" new-session -d -s "$SESSION" -c "$WORK_DIR" "$CMD"
             running_mode="$CLAUDE_MODE"
