@@ -83,6 +83,18 @@ The watchdog only checks that the tmux session exists, not that Remote Control i
 
 Conversations are stored per directory in `~/.claude/projects/`, so keep `WORK_DIR` fixed if you want to resume. Anything a resumed or new session must know can go into `~/.claude/CLAUDE.md` or the user hook below.
 
+## Long-lived token instead of /login
+
+The `/login` session of a machine runs out after about 30 days; the service then loops and the machine drops out of claude.ai/code until someone logs in again. A long-lived token avoids that.
+
+1. On any machine with a browser: `claude setup-token`. Sign in; it prints a token (valid about a year). Copy it.
+2. On the service machine: `install -m 600 /dev/null ~/.claude/oauth-token`, then paste the token into that file (do not put it in `service.env`, shell history or chat).
+3. Make sure the installed watchdog is 2.8.0 or newer (rerun the installer, or wait for the hourly sync and rerun it once; this restarts the service).
+4. In `~/.claude/service.env` set `CLAUDE_TOKEN_FILE="$HOME/.claude/oauth-token"` (use the full path) and restart the service.
+5. Check: the machine is listed in claude.ai/code and stays up. If Remote Control fails (these tokens are inference-only), empty `CLAUDE_TOKEN_FILE` and use `/login` again.
+
+Renew: create a new token with `claude setup-token` before the year is up and overwrite the file; the next session start picks it up.
+
 ## Inbox: let other machines drop files
 
 With `INBOX_WATCH="yes"` the watchdog announces new files in `INBOX_DIR` (default `~/inbox`) to Claude (see the table above). How files get there is up to you; a safe way for other machines or other Claude sessions is a **write-only SSH key** per sender:
