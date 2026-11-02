@@ -5,7 +5,7 @@ set -e
 
 # === FIRST-INSTALL DEFAULTS (override with environment variables) ===
 # They are written once to ~/.claude/service.env; edit that file afterwards, the watchdog re-reads it every minute.
-SCRIPT_VERSION="2.9.3"
+SCRIPT_VERSION="2.9.4"
 # Repo with shared hooks/tasks: the only place that names it. Change this line when the repo moves (e.g. to GitHub).
 # Private repo: use an SSH URL with a deploy key, or a URL with a read-only token. Empty = no syncing.
 GIT_REPO_URL="${GIT_REPO_URL-https://github.com/rokdd/claude-rc-service.git}"
@@ -335,10 +335,10 @@ EOF
 chmod +x "$HOME/.local/bin/claude-bootstrap.sh.new" "$TARGET_DIR/session_hook.default.sh" "$TARGET_DIR/session_hook.user.sh"
 mv -f "$HOME/.local/bin/claude-bootstrap.sh.new" "$HOME/.local/bin/claude-bootstrap.sh"
 
-# 5a. Command line helper: claude-service status|update|restart|logs|attach|token|version
+# 5a. Command line helper: claude-service status|update|name|restart|logs|attach|token|version
 cat > "$HOME/.local/bin/claude-service.new" <<'EOF'
 #!/bin/bash
-# Control the Claude background service: claude-service status|update|restart|logs|attach|token|version
+# Control the Claude background service: claude-service status|update|name|restart|logs|attach|token|version
 export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:$PATH"
 TARGET_DIR="$HOME/.claude"
 REPO_DIR="$HOME/.claude-service-repo"
@@ -393,11 +393,19 @@ case "${1:-status}" in
             sed -i.bak "s|^CLAUDE_TOKEN_FILE=.*|CLAUDE_TOKEN_FILE=\"$file\"|" "$TARGET_DIR/service.env" && rm -f "$TARGET_DIR/service.env.bak"
         else printf 'CLAUDE_TOKEN_FILE="%s"\n' "$file" >> "$TARGET_DIR/service.env"; fi
         echo "Saved to $file (600) and set CLAUDE_TOKEN_FILE. Run 'claude-service restart' to use it (ends the running session)." ;;
+    name)
+        # show or set the name listed in claude.ai/code (server mode); applies after the next restart
+        if [ -z "$2" ]; then echo "${CLAUDE_NAME:-$(hostname -s)}"; exit 0; fi
+        [[ "$2" =~ ^[A-Za-z0-9][A-Za-z0-9._\ -]{0,63}$ ]] || { echo "Use letters, digits, space, . _ - (max 64)"; exit 1; }
+        if grep -q '^CLAUDE_NAME=' "$TARGET_DIR/service.env"; then
+            sed -i.bak "s|^CLAUDE_NAME=.*|CLAUDE_NAME=\"$2\"|" "$TARGET_DIR/service.env" && rm -f "$TARGET_DIR/service.env.bak"
+        else printf 'CLAUDE_NAME="%s"\n' "$2" >> "$TARGET_DIR/service.env"; fi
+        echo "Name set to '$2'. Run 'claude-service restart' to apply (ends the running session)." ;;
     restart) restart_service && echo "restarted (a running session ends and is continued)" ;;
     logs)    tail -n "${2:-50}" -f "$LOG" ;;
     attach)  exec tmux attach -t "$SESSION" ;;
     version) installed_version ;;
-    *) echo "Usage: claude-service status|update [--restart]|token [file]|restart|logs [lines]|attach|version"; exit 1 ;;
+    *) echo "Usage: claude-service status|update [--restart]|token [file]|name [new]|restart|logs [lines]|attach|version"; exit 1 ;;
 esac
 EOF
 chmod +x "$HOME/.local/bin/claude-service.new"

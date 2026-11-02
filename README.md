@@ -162,7 +162,7 @@ Settings at the top of the file (`yes`/`no`; they can also be set in `service.en
 
 ## Commands: `claude-service`
 
-`claude-service status` (service, tmux session, mode, installed vs repo version, login type, last log lines; exit code 1 when not running), `claude-service update` (pulls the repo and runs the installer without restarting, `--restart` also restarts and ends the running session), `claude-service token [file]` (runs `claude setup-token`, you paste the token, it is saved with mode 600 and `CLAUDE_TOKEN_FILE` is set in `service.env`; then `restart`), `restart`, `logs [lines]`, `attach`, `version`.
+`claude-service status` (service, tmux session, mode, installed vs repo version, login type, last log lines; exit code 1 when not running), `claude-service update` (pulls the repo and runs the installer without restarting, `--restart` also restarts and ends the running session), `claude-service token [file]` (runs `claude setup-token`, you paste the token, it is saved with mode 600 and `CLAUDE_TOKEN_FILE` is set in `service.env`; then `restart`), `name [new]` (shows or sets `CLAUDE_NAME`, the machine name in claude.ai/code; applies after `restart`), `restart`, `logs [lines]`, `attach`, `version`.
 
 ## Re-running the installer
 
