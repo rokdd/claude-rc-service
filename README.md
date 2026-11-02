@@ -19,6 +19,22 @@ Runs Claude Code as an always-on service on macOS (LaunchAgent) and Linux (syste
 
 ## Install
 
+One command, straight from GitHub (copy and paste):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/rokdd/claude-rc-service/main/setup-claude-service.sh | bash
+```
+
+With your own first-install values (written to `service.env` once), put them before `bash`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/rokdd/claude-rc-service/main/setup-claude-service.sh | CLAUDE_MODE=server WORK_DIR=/opt/cicd CLAUDE_NAME=beat bash
+```
+
+Afterwards sign in once with `claude` (or `claude-service token`), and manage the service with `claude-service status|update|restart` (see Commands below).
+
+From a clone of the repo:
+
 Plain install with the defaults:
 
 ```bash
