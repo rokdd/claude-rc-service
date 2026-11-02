@@ -71,7 +71,7 @@ Created on the first install and never overwritten. The watchdog re-reads it eve
 | `CLAUDE_DEBUG` | `no` | `yes` keeps a debug log in `~/.claude/logs/rc-debug.log` (both modes). Turn it on to find out why Remote Control drops. Applies when the session next starts; a file over 20 MB is moved to `rc-debug.log.1` by the watchdog. In `server` mode the running session always logs to `rc-run.log` (needed for `SKIP_ARCHIVED`), which is appended to `rc-debug.log` when the next run starts. |
 | `INBOX_WATCH` | `no` | `yes` makes the watchdog (once a minute) look in `INBOX_DIR` and, for each new or changed file, tell Claude in one line with the file names. `session` mode: the line is typed into the running conversation. `server` mode: a new Remote Control session named `inbox <host> <date time>` is started for the delivery (own tmux window, shows up in claude.ai/code). Its first prompt asks it to note the outcome in the Handover section of `~/.claude/CLAUDE.md` and then close its own window (`tmux kill-window -t "$TMUX_PANE"`), so inbox sessions do not pile up. Only names matching `[A-Za-z0-9._-]` are announced, the contents are never typed into the session, and the line tells Claude to treat them as data from the sender. The first run only remembers the files already there. State: `~/.claude/state/inbox-seen`. |
 | `INBOX_DIR` | `~/inbox` | Directory for `INBOX_WATCH`. |
-| `CLAUDE_TOKEN_FILE` | empty | Path to a file (chmod 600) with a long-lived token from `claude setup-token` (valid about a year, needs one browser sign-in on any machine). The watchdog exports it as `CLAUDE_CODE_OAUTH_TOKEN` for the session and for inbox sessions (only `cat file` is in the command line, never the token). Use it so the machine does not drop out when the `/login` session expires. Empty = normal `/login`. Caveat: such tokens are inference-only and Remote Control may still need a full `/login`; try it and keep the `/login` as fallback (an unreadable file falls back to it with a log line). Applies when the session next starts. |
+| `CLAUDE_TOKEN_FILE` | empty | Deprecated, ignored (setup-token tokens do not work for Remote Control, see below). |
 | `SKIP_ARCHIVED` | `yes` | `server` mode: if you archived the session in claude.ai/code, Claude exits; the watchdog then starts it again **without** `--continue`, so the archived session is not reattached (and thereby un-archived). The machine stays listed with no session open. Detected from the run's own debug log `~/.claude/logs/rc-run.log` (emptied at every start; with `CLAUDE_DEBUG=yes` it is appended to `rc-debug.log`). `no` = always `--continue`. |
 
 ### Modes
@@ -99,17 +99,11 @@ The watchdog only checks that the tmux session exists, not that Remote Control i
 
 Conversations are stored per directory in `~/.claude/projects/`, so keep `WORK_DIR` fixed if you want to resume. Anything a resumed or new session must know can go into `~/.claude/CLAUDE.md` or the user hook below.
 
-## Long-lived token instead of /login
+## Long-lived token: does not work
 
-The `/login` session of a machine runs out after about 30 days; the service then loops and the machine drops out of claude.ai/code until someone logs in again. A long-lived token avoids that.
+Tokens from `claude setup-token` are inference-only. With one set as `CLAUDE_CODE_OAUTH_TOKEN`, `claude remote-control` exits about half a second after each start (tested on ubiter, 2026-11-02; the error text blames the network), so the machine drops out of claude.ai/code. `CLAUDE_TOKEN_FILE` (2.8.0) is therefore ignored since 2.10.0: the watchdog logs a line and uses the `/login` session. If you set it on an older install, empty it in `service.env` and restart.
 
-1. On any machine with a browser: `claude setup-token`. Sign in; it prints a token (valid about a year). Copy it.
-2. On the service machine: `install -m 600 /dev/null ~/.claude/oauth-token`, then paste the token into that file (do not put it in `service.env`, shell history or chat).
-3. Make sure the installed watchdog is 2.8.0 or newer (rerun the installer, or wait for the hourly sync and rerun it once; this restarts the service).
-4. In `~/.claude/service.env` set `CLAUDE_TOKEN_FILE="$HOME/.claude/oauth-token"` (use the full path) and restart the service.
-5. Check: the machine is listed in claude.ai/code and stays up. If Remote Control fails (these tokens are inference-only), empty `CLAUDE_TOKEN_FILE` and use `/login` again.
-
-Renew: create a new token with `claude setup-token` before the year is up and overwrite the file; the next session start picks it up.
+The `/login` session runs out after about 30 days (Linux: renew in `tmux attach -t claude-service`, `/login`). Watch for it with a timer that checks `claude auth status`.
 
 ## Inbox: let other machines drop files
 
@@ -162,7 +156,7 @@ Settings at the top of the file (`yes`/`no`; they can also be set in `service.en
 
 ## Commands: `claude-service`
 
-`claude-service status` (service, tmux session, mode, installed vs repo version, login type, last log lines; exit code 1 when not running), `claude-service update` (pulls the repo and runs the installer without restarting, `--restart` also restarts and ends the running session), `claude-service token [file]` (runs `claude setup-token`, you paste the token, it is saved with mode 600 and `CLAUDE_TOKEN_FILE` is set in `service.env`; then `restart`), `name [new]` (shows or sets `CLAUDE_NAME`, the machine name in claude.ai/code; applies after `restart`), `restart`, `logs [lines]`, `attach`, `version`.
+`claude-service status` (service, tmux session, mode, installed vs repo version, login type, last log lines; exit code 1 when not running), `claude-service update` (pulls the repo and runs the installer without restarting, `--restart` also restarts and ends the running session), `name [new]` (shows or sets `CLAUDE_NAME`, the machine name in claude.ai/code; applies after `restart`), `restart`, `logs [lines]`, `attach`, `version`.
 
 ## Re-running the installer
 

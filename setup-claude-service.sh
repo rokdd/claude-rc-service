@@ -5,7 +5,7 @@ set -e
 
 # === FIRST-INSTALL DEFAULTS (override with environment variables) ===
 # They are written once to ~/.claude/service.env; edit that file afterwards, the watchdog re-reads it every minute.
-SCRIPT_VERSION="2.9.4"
+SCRIPT_VERSION="2.10.0"
 # Repo with shared hooks/tasks: the only place that names it. Change this line when the repo moves (e.g. to GitHub).
 # Private repo: use an SSH URL with a deploy key, or a URL with a read-only token. Empty = no syncing.
 GIT_REPO_URL="${GIT_REPO_URL-https://github.com/rokdd/claude-rc-service.git}"
@@ -17,7 +17,7 @@ CLAUDE_PERMISSION_MODE="${CLAUDE_PERMISSION_MODE-bypassPermissions}"   # allow e
 CLAUDE_DEBUG="${CLAUDE_DEBUG:-no}"   # yes = Claude writes a debug log to ~/.claude/logs/rc-debug.log (to find out why Remote Control drops)
 INBOX_WATCH="${INBOX_WATCH:-no}"   # yes = the watchdog tells the session when files appear in INBOX_DIR (file names only)
 INBOX_DIR="${INBOX_DIR:-$HOME/inbox}"
-CLAUDE_TOKEN_FILE="${CLAUDE_TOKEN_FILE:-}"   # file with a long-lived token from "claude setup-token"; empty = normal /login
+CLAUDE_TOKEN_FILE="${CLAUDE_TOKEN_FILE:-}"   # DEPRECATED, ignored: setup-token tokens do not work for Remote Control
 if [[ "$OSTYPE" == "darwin"* ]]; then KEEP_AWAKE="${KEEP_AWAKE:-yes}"; else KEEP_AWAKE="${KEEP_AWAKE:-no}"; fi   # yes = block idle sleep while the session runs
 TARGET_DIR="$HOME/.claude"
 REPO_DIR="$HOME/.claude-service-repo"
@@ -141,11 +141,11 @@ running_mode=""
 mkdir -p "$TARGET_DIR/logs"
 exec >> "$TARGET_DIR/logs/daemon.log" 2>&1
 
-# Shell snippet that exports the long-lived token from CLAUDE_TOKEN_FILE (the token itself never appears in a command line)
+# CLAUDE_TOKEN_FILE is no longer applied (see below)
 token_prefix() {
     [ -n "$CLAUDE_TOKEN_FILE" ] || return 0
-    if [ -r "$CLAUDE_TOKEN_FILE" ]; then printf 'export CLAUDE_CODE_OAUTH_TOKEN="$(cat %q)"; ' "$CLAUDE_TOKEN_FILE"
-    else echo "[$(date)] CLAUDE_TOKEN_FILE $CLAUDE_TOKEN_FILE is not readable: using the normal login" >&2; fi
+    # setup-token tokens are inference-only: Remote Control exits right after start with them (seen on ubiter 2026-11-02)
+    echo "[$(date)] CLAUDE_TOKEN_FILE is ignored: tokens from 'claude setup-token' do not work for Remote Control, using the /login session" >&2
 }
 
 # Inbox: announce new or changed files in INBOX_DIR to the session, once each. Only the file names go into
@@ -335,10 +335,10 @@ EOF
 chmod +x "$HOME/.local/bin/claude-bootstrap.sh.new" "$TARGET_DIR/session_hook.default.sh" "$TARGET_DIR/session_hook.user.sh"
 mv -f "$HOME/.local/bin/claude-bootstrap.sh.new" "$HOME/.local/bin/claude-bootstrap.sh"
 
-# 5a. Command line helper: claude-service status|update|name|restart|logs|attach|token|version
+# 5a. Command line helper: claude-service status|update|name|restart|logs|attach|version
 cat > "$HOME/.local/bin/claude-service.new" <<'EOF'
 #!/bin/bash
-# Control the Claude background service: claude-service status|update|name|restart|logs|attach|token|version
+# Control the Claude background service: claude-service status|update|name|restart|logs|attach|version
 export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:$PATH"
 TARGET_DIR="$HOME/.claude"
 REPO_DIR="$HOME/.claude-service-repo"
@@ -365,12 +365,10 @@ case "${1:-status}" in
         echo "mode:       ${CLAUDE_MODE:-?} (name ${CLAUDE_NAME:-?}, dir ${WORK_DIR:-?})"
         echo "installed:  $(installed_version)"
         echo "repo:       $(repo_version) ($(git -C "$REPO_DIR" log -1 --format='%h %cd' --date=short 2>/dev/null))"
-        if [ -n "$CLAUDE_TOKEN_FILE" ] && [ -r "$CLAUDE_TOKEN_FILE" ]; then
-            auth=$(CLAUDE_CODE_OAUTH_TOKEN="$(cat "$CLAUDE_TOKEN_FILE")" claude auth status 2>/dev/null); how="long-lived token"
-        else auth=$(claude auth status 2>/dev/null); how="login"; fi
+        auth=$(claude auth status 2>/dev/null); how="login"
         if echo "$auth" | grep -q '"loggedIn": *true'; then
             echo "login:      signed in ($how$(echo "$auth" | sed -n 's/.*"email": *"\([^"]*\)".*/, \1/p'))"
-        else echo "login:      NOT signed in: run 'claude' (/login) or 'claude-service token'"; fi
+        else echo "login:      NOT signed in: run 'claude' and /login"; fi
         echo "last log:"; tail -n 5 "$LOG" 2>/dev/null | sed 's/^/  /'
         [ "$(unit_active)" = "active" ] ;;
     update)
@@ -382,17 +380,8 @@ case "${1:-status}" in
         if [ "$2" = "--restart" ]; then bash "$REPO_DIR/setup-claude-service.sh"
         else NO_RESTART=yes bash "$REPO_DIR/setup-claude-service.sh"; echo "Not restarted: the new watchdog runs after 'claude-service restart'."; fi ;;
     token)
-        # create a long-lived token (opens the browser login of "claude setup-token"), save it and switch the service to it
-        file="${2:-$TARGET_DIR/oauth-token}"
-        echo "Step 1: claude setup-token prints a token (sk-ant-oat...). Copy it."
-        claude setup-token || exit 1
-        read -r -s -p "Step 2: paste the token here (hidden): " tok; echo
-        [[ "$tok" =~ ^[A-Za-z0-9_-]{20,}$ ]] || { echo "That does not look like a token, nothing saved."; exit 1; }
-        ( umask 077; printf '%s\n' "$tok" > "$file" )
-        if grep -q '^CLAUDE_TOKEN_FILE=' "$TARGET_DIR/service.env"; then
-            sed -i.bak "s|^CLAUDE_TOKEN_FILE=.*|CLAUDE_TOKEN_FILE=\"$file\"|" "$TARGET_DIR/service.env" && rm -f "$TARGET_DIR/service.env.bak"
-        else printf 'CLAUDE_TOKEN_FILE="%s"\n' "$file" >> "$TARGET_DIR/service.env"; fi
-        echo "Saved to $file (600) and set CLAUDE_TOKEN_FILE. Run 'claude-service restart' to use it (ends the running session)." ;;
+        echo "Not supported: tokens from 'claude setup-token' are inference-only and Remote Control exits right after start with them."
+        echo "Use the normal sign-in instead: run 'claude' and /login (attach with 'claude-service attach' if needed)."; exit 1 ;;
     name)
         # show or set the name listed in claude.ai/code (server mode); applies after the next restart
         if [ -z "$2" ]; then echo "${CLAUDE_NAME:-$(hostname -s)}"; exit 0; fi
@@ -405,7 +394,7 @@ case "${1:-status}" in
     logs)    tail -n "${2:-50}" -f "$LOG" ;;
     attach)  exec tmux attach -t "$SESSION" ;;
     version) installed_version ;;
-    *) echo "Usage: claude-service status|update [--restart]|token [file]|name [new]|restart|logs [lines]|attach|version"; exit 1 ;;
+    *) echo "Usage: claude-service status|update [--restart]|name [new]|restart|logs [lines]|attach|version"; exit 1 ;;
 esac
 EOF
 chmod +x "$HOME/.local/bin/claude-service.new"
@@ -469,4 +458,4 @@ fi
 
 echo "Done. Sign in once with 'claude' if you have not yet. Log: $TARGET_DIR/logs/daemon.log"
 echo "Attach to the session: tmux attach -t claude-service"
-echo "Commands: claude-service status|update|token (open a new terminal first, or run ~/.local/bin/claude-service)"
+echo "Commands: claude-service status|update|name (open a new terminal first, or run ~/.local/bin/claude-service)"
