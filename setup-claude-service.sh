@@ -5,7 +5,7 @@ set -e
 
 # === FIRST-INSTALL DEFAULTS (override with environment variables) ===
 # They are written once to ~/.claude/service.env; edit that file afterwards, the watchdog re-reads it every minute.
-SCRIPT_VERSION="2.8.0"
+SCRIPT_VERSION="2.9.0"
 # Repo with shared hooks/tasks: the only place that names it. Change this line when the repo moves (e.g. to GitHub).
 # Private repo: use an SSH URL with a deploy key, or a URL with a read-only token. Empty = no syncing.
 GIT_REPO_URL="${GIT_REPO_URL-https://github.com/rokdd/claude-rc-service.git}"
@@ -330,6 +330,70 @@ done
 EOF
 chmod +x "$HOME/.local/bin/claude-bootstrap.sh.new" "$TARGET_DIR/session_hook.default.sh" "$TARGET_DIR/session_hook.user.sh"
 mv -f "$HOME/.local/bin/claude-bootstrap.sh.new" "$HOME/.local/bin/claude-bootstrap.sh"
+
+# 5a. Command line helper: claude-service status|update|restart|logs|attach|token|version
+cat > "$HOME/.local/bin/claude-service.new" <<'EOF'
+#!/bin/bash
+# Control the Claude background service: claude-service status|update|restart|logs|attach|token|version
+export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:$PATH"
+TARGET_DIR="$HOME/.claude"
+REPO_DIR="$HOME/.claude-service-repo"
+LOG="$TARGET_DIR/logs/daemon.log"
+SESSION="claude-service"
+[ -f "$TARGET_DIR/service.env" ] && . "$TARGET_DIR/service.env"
+
+repo_version() { grep -m1 '^SCRIPT_VERSION=' "$REPO_DIR/setup-claude-service.sh" 2>/dev/null | cut -d'"' -f2; }
+installed_version() { cat "$TARGET_DIR/state/installed-version" 2>/dev/null || echo "unknown (installed by an older installer)"; }
+unit_active() {
+    if [[ "$OSTYPE" == "darwin"* ]]; then launchctl list com.anthropic.claude >/dev/null 2>&1 && echo active || echo inactive
+    else systemctl --user is-active claude.service 2>/dev/null; fi
+}
+restart_service() {
+    if [[ "$OSTYPE" == "darwin"* ]]; then launchctl kickstart -k "gui/$(id -u)/com.anthropic.claude"
+    else systemctl --user restart claude.service; fi
+}
+
+case "${1:-status}" in
+    status)
+        echo "service:    $(unit_active)"
+        if command -v tmux >/dev/null && tmux has-session -t "$SESSION" 2>/dev/null; then echo "tmux:       session $SESSION is running"
+        else echo "tmux:       no session $SESSION"; fi
+        echo "mode:       ${CLAUDE_MODE:-?} (name ${CLAUDE_NAME:-?}, dir ${WORK_DIR:-?})"
+        echo "installed:  $(installed_version)"
+        echo "repo:       $(repo_version) ($(git -C "$REPO_DIR" log -1 --format='%h %cd' --date=short 2>/dev/null))"
+        [ -n "$CLAUDE_TOKEN_FILE" ] && echo "login:      long-lived token file $CLAUDE_TOKEN_FILE" || echo "login:      normal /login"
+        echo "last log:"; tail -n 5 "$LOG" 2>/dev/null | sed 's/^/  /'
+        [ "$(unit_active)" = "active" ] ;;
+    update)
+        # fetch the newest repo, run its installer; the service is restarted only with --restart (it ends the running session)
+        [ -d "$REPO_DIR/.git" ] || { echo "No $REPO_DIR: run the installer once first"; exit 1; }
+        old=$(repo_version)
+        git -C "$REPO_DIR" pull --ff-only || exit 1
+        echo "repo: $old -> $(repo_version)"
+        if [ "$2" = "--restart" ]; then bash "$REPO_DIR/setup-claude-service.sh"
+        else NO_RESTART=yes bash "$REPO_DIR/setup-claude-service.sh"; echo "Not restarted: the new watchdog runs after 'claude-service restart'."; fi ;;
+    token)
+        # create a long-lived token (opens the browser login of "claude setup-token"), save it and switch the service to it
+        file="${2:-$TARGET_DIR/oauth-token}"
+        echo "Step 1: claude setup-token prints a token (sk-ant-oat...). Copy it."
+        claude setup-token || exit 1
+        read -r -s -p "Step 2: paste the token here (hidden): " tok; echo
+        [[ "$tok" =~ ^[A-Za-z0-9_-]{20,}$ ]] || { echo "That does not look like a token, nothing saved."; exit 1; }
+        ( umask 077; printf '%s\n' "$tok" > "$file" )
+        if grep -q '^CLAUDE_TOKEN_FILE=' "$TARGET_DIR/service.env"; then
+            sed -i.bak "s|^CLAUDE_TOKEN_FILE=.*|CLAUDE_TOKEN_FILE=\"$file\"|" "$TARGET_DIR/service.env" && rm -f "$TARGET_DIR/service.env.bak"
+        else printf 'CLAUDE_TOKEN_FILE="%s"\n' "$file" >> "$TARGET_DIR/service.env"; fi
+        echo "Saved to $file (600) and set CLAUDE_TOKEN_FILE. Run 'claude-service restart' to use it (ends the running session)." ;;
+    restart) restart_service && echo "restarted (a running session ends and is continued)" ;;
+    logs)    tail -n "${2:-50}" -f "$LOG" ;;
+    attach)  exec tmux attach -t "$SESSION" ;;
+    version) installed_version ;;
+    *) echo "Usage: claude-service status|update [--restart]|token [file]|restart|logs [lines]|attach|version"; exit 1 ;;
+esac
+EOF
+chmod +x "$HOME/.local/bin/claude-service.new"
+mv -f "$HOME/.local/bin/claude-service.new" "$HOME/.local/bin/claude-service"
+mkdir -p "$TARGET_DIR/state"; echo "$SCRIPT_VERSION" > "$TARGET_DIR/state/installed-version"
 
 # 5b. Retire the older single-purpose unit (claude-rc.service) so two sessions do not fight over one conversation
 if [ "$OS" == "linux" ] && systemctl --user list-unit-files claude-rc.service >/dev/null 2>&1 \

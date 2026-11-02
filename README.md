@@ -144,6 +144,10 @@ Settings at the top of the file (`yes`/`no`; they can also be set in `service.en
 | `MACHINE_INFO` | `yes` | Prints OS, cores and free disk space. |
 | `TELL_USER` | `yes` | Claude says once, in its first reply, which features are on and how to opt out. |
 
+## Commands: `claude-service`
+
+`claude-service status` (service, tmux session, mode, installed vs repo version, login type, last log lines; exit code 1 when not running), `claude-service update` (pulls the repo and runs the installer without restarting, `--restart` also restarts and ends the running session), `claude-service token [file]` (runs `claude setup-token`, you paste the token, it is saved with mode 600 and `CLAUDE_TOKEN_FILE` is set in `service.env`; then `restart`), `restart`, `logs [lines]`, `attach`, `version`.
+
 ## Re-running the installer
 
 Safe at any time: `service.env` is kept (new settings are appended with their default), the watchdog is replaced atomically and `claude.service` is restarted, which ends the running tmux session (it is continued by `--continue`, see above). Run it from inside the session with `NO_RESTART=yes bash setup-claude-service.sh`; the new watchdog then runs from the next restart.
@@ -151,6 +155,7 @@ Safe at any time: `service.env` is kept (new settings are appended with their de
 ## What the installer writes
 
 - `~/.local/bin/claude-bootstrap.sh`: the watchdog.
+- `~/.local/bin/claude-service`: the command line helper above; `~/.claude/state/installed-version`: its version stamp.
 - `~/.claude/service.env`: the config above.
 - `~/.claude/settings.json`: merged, not replaced. Adds basic allow rules (including the claude-code-remote tools send_message, list_events, get_session, list_sessions, so sessions on different machines can message each other) and the hook.
 - `~/.claude.json`: the watchdog sets only the startup-question flags: `hasCompletedOnboarding`, `remoteDialogSeen`, `bypassPermissionsModeAccepted` (bypassPermissions mode only), and for `WORK_DIR` (also after you change it) `hasTrustDialogAccepted` and the CLAUDE.md includes flags. Nothing else. Signing in (`claude` once) is still manual.
