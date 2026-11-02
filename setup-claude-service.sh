@@ -5,7 +5,7 @@ set -e
 
 # === FIRST-INSTALL DEFAULTS (override with environment variables) ===
 # They are written once to ~/.claude/service.env; edit that file afterwards, the watchdog re-reads it every minute.
-SCRIPT_VERSION="2.9.2"
+SCRIPT_VERSION="2.9.3"
 # Repo with shared hooks/tasks: the only place that names it. Change this line when the repo moves (e.g. to GitHub).
 # Private repo: use an SSH URL with a deploy key, or a URL with a read-only token. Empty = no syncing.
 GIT_REPO_URL="${GIT_REPO_URL-https://github.com/rokdd/claude-rc-service.git}"
@@ -365,7 +365,12 @@ case "${1:-status}" in
         echo "mode:       ${CLAUDE_MODE:-?} (name ${CLAUDE_NAME:-?}, dir ${WORK_DIR:-?})"
         echo "installed:  $(installed_version)"
         echo "repo:       $(repo_version) ($(git -C "$REPO_DIR" log -1 --format='%h %cd' --date=short 2>/dev/null))"
-        [ -n "$CLAUDE_TOKEN_FILE" ] && echo "login:      long-lived token file $CLAUDE_TOKEN_FILE" || echo "login:      normal /login"
+        if [ -n "$CLAUDE_TOKEN_FILE" ] && [ -r "$CLAUDE_TOKEN_FILE" ]; then
+            auth=$(CLAUDE_CODE_OAUTH_TOKEN="$(cat "$CLAUDE_TOKEN_FILE")" claude auth status 2>/dev/null); how="long-lived token"
+        else auth=$(claude auth status 2>/dev/null); how="login"; fi
+        if echo "$auth" | grep -q '"loggedIn": *true'; then
+            echo "login:      signed in ($how$(echo "$auth" | sed -n 's/.*"email": *"\([^"]*\)".*/, \1/p'))"
+        else echo "login:      NOT signed in: run 'claude' (/login) or 'claude-service token'"; fi
         echo "last log:"; tail -n 5 "$LOG" 2>/dev/null | sed 's/^/  /'
         [ "$(unit_active)" = "active" ] ;;
     update)
