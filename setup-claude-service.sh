@@ -5,7 +5,7 @@ set -e
 
 # === FIRST-INSTALL DEFAULTS (override with environment variables) ===
 # They are written once to ~/.claude/service.env; edit that file afterwards, the watchdog re-reads it every minute.
-SCRIPT_VERSION="2.9.1"
+SCRIPT_VERSION="2.9.2"
 # Repo with shared hooks/tasks: the only place that names it. Change this line when the repo moves (e.g. to GitHub).
 # Private repo: use an SSH URL with a deploy key, or a URL with a read-only token. Empty = no syncing.
 GIT_REPO_URL="${GIT_REPO_URL-https://github.com/rokdd/claude-rc-service.git}"
@@ -195,10 +195,10 @@ while true; do
     [ -f "$ENV_FILE" ] && . "$ENV_FILE"
 
     # Keep the log small
-    [ "$(wc -c < "$LOG" 2>/dev/null || echo 0)" -gt 1000000 ] && tail -n 500 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG"
+    [ "$({ wc -c < "$LOG"; } 2>/dev/null || echo 0)" -gt 1000000 ] && tail -n 500 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG"
     # The debug log is written by Claude itself; when it gets big, keep the old part as .1 (applies at the next start)
     DLOG="$TARGET_DIR/logs/rc-debug.log"
-    [ "$(wc -c < "$DLOG" 2>/dev/null || echo 0)" -gt 20000000 ] && mv -f "$DLOG" "$DLOG.1"
+    [ "$({ wc -c < "$DLOG"; } 2>/dev/null || echo 0)" -gt 20000000 ] && mv -f "$DLOG" "$DLOG.1"
 
     if [ -z "$CLAUDE" ] || ! "$CLAUDE" --version >/dev/null 2>&1; then
         echo "Claude binary missing or broken, retrying in 60 s"
@@ -217,7 +217,11 @@ while true; do
                     echo "[$(date)] Repo URL changed, now $GIT_REPO_URL"
                     git -C "$REPO_DIR" remote set-url origin "$GIT_REPO_URL"
                 fi
-                git -C "$REPO_DIR" pull --ff-only || echo "Git pull failed"
+                git -C "$REPO_DIR" pull --ff-only 2>/dev/null || {
+                    # the copy is read-only: if history was rewritten or diverged, follow the remote
+                    echo "[$(date)] Git pull not a fast-forward, resetting the copy to the remote"
+                    git -C "$REPO_DIR" fetch origin && git -C "$REPO_DIR" reset --hard "origin/$(git -C "$REPO_DIR" rev-parse --abbrev-ref HEAD)" || echo "Git pull failed"
+                }
             else
                 git clone "$GIT_REPO_URL" "$REPO_DIR" || echo "Git clone failed"
             fi
@@ -368,7 +372,7 @@ case "${1:-status}" in
         # fetch the newest repo, run its installer; the service is restarted only with --restart (it ends the running session)
         [ -d "$REPO_DIR/.git" ] || { echo "No $REPO_DIR: run the installer once first"; exit 1; }
         old=$(repo_version)
-        git -C "$REPO_DIR" pull --ff-only || exit 1
+        git -C "$REPO_DIR" pull --ff-only 2>/dev/null || { git -C "$REPO_DIR" fetch origin && git -C "$REPO_DIR" reset --hard "origin/$(git -C "$REPO_DIR" rev-parse --abbrev-ref HEAD)"; } || exit 1
         echo "repo: $old -> $(repo_version)"
         if [ "$2" = "--restart" ]; then bash "$REPO_DIR/setup-claude-service.sh"
         else NO_RESTART=yes bash "$REPO_DIR/setup-claude-service.sh"; echo "Not restarted: the new watchdog runs after 'claude-service restart'."; fi ;;
