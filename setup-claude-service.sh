@@ -5,7 +5,7 @@ set -e
 
 # === FIRST-INSTALL DEFAULTS (override with environment variables) ===
 # They are written once to ~/.claude/service.env; edit that file afterwards, the watchdog re-reads it every minute.
-SCRIPT_VERSION="2.9.0"
+SCRIPT_VERSION="2.9.1"
 # Repo with shared hooks/tasks: the only place that names it. Change this line when the repo moves (e.g. to GitHub).
 # Private repo: use an SSH URL with a deploy key, or a URL with a read-only token. Empty = no syncing.
 GIT_REPO_URL="${GIT_REPO_URL-https://github.com/rokdd/claude-rc-service.git}"
@@ -395,6 +395,12 @@ chmod +x "$HOME/.local/bin/claude-service.new"
 mv -f "$HOME/.local/bin/claude-service.new" "$HOME/.local/bin/claude-service"
 mkdir -p "$TARGET_DIR/state"; echo "$SCRIPT_VERSION" > "$TARGET_DIR/state/installed-version"
 
+# Make ~/.local/bin findable in new shells (macOS zsh does not have it), once
+for rc in "$HOME/.zshrc" "$HOME/.bashrc"; do
+    [ -f "$rc" ] || { [ "$rc" = "$HOME/.zshrc" ] && [[ "$OSTYPE" == "darwin"* ]] || continue; }
+    grep -q '\.local/bin' "$rc" 2>/dev/null || printf '\n# added by claude-rc-service\nexport PATH="$HOME/.local/bin:$PATH"\n' >> "$rc"
+done
+
 # 5b. Retire the older single-purpose unit (claude-rc.service) so two sessions do not fight over one conversation
 if [ "$OS" == "linux" ] && systemctl --user list-unit-files claude-rc.service >/dev/null 2>&1 \
    && systemctl --user is-enabled claude-rc.service >/dev/null 2>&1; then
@@ -446,3 +452,4 @@ fi
 
 echo "Done. Sign in once with 'claude' if you have not yet. Log: $TARGET_DIR/logs/daemon.log"
 echo "Attach to the session: tmux attach -t claude-service"
+echo "Commands: claude-service status|update|token (open a new terminal first, or run ~/.local/bin/claude-service)"
