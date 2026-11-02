@@ -31,7 +31,7 @@ With your own first-install values (written to `service.env` once), put them bef
 curl -fsSL https://raw.githubusercontent.com/rokdd/claude-rc-service/main/setup-claude-service.sh | CLAUDE_MODE=server WORK_DIR=/opt/cicd CLAUDE_NAME=beat bash
 ```
 
-Afterwards open a new terminal (the installer adds `~/.local/bin` to `~/.zshrc`/`~/.bashrc`), sign in once with `claude` (or `claude-service token`), and manage the service with `claude-service status|update|restart` (see Commands below).
+Afterwards open a new terminal (the installer adds `~/.local/bin` to `~/.zshrc`/`~/.bashrc`), sign in once with `claude`, and manage the service with `claude-service status|update|restart` (see Commands below).
 
 From a clone of the repo:
 
