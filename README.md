@@ -156,7 +156,7 @@ Settings at the top of the file (`yes`/`no`; they can also be set in `service.en
 
 ## Commands: `claude-service`
 
-`claude-service status` (service, tmux session, mode, installed vs repo version, login type, last log lines; exit code 1 when not running), `claude-service update` (pulls the repo and runs the installer without restarting, `--restart` also restarts and ends the running session), `name [new]` (shows or sets `CLAUDE_NAME`, the machine name in claude.ai/code; applies after `restart`), `restart`, `logs [lines]`, `attach`, `version`.
+`claude-service status` (service, tmux session, mode, installed vs repo version, login type, last log lines; exit code 1 when not running), `claude-service update` (pulls the repo and runs the installer without restarting, `--restart` also restarts and ends the running session), `name [new]` (shows or sets `CLAUDE_NAME`, the machine name in claude.ai/code; applies after `restart`), `inbox [list|all|summary|done ...]` (inbox delivery ledger), `restart`, `logs [lines]`, `attach`, `version`.
 
 ## Re-running the installer
 
