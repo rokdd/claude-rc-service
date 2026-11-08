@@ -168,7 +168,7 @@ inbox_sweep() {   # an open delivery whose session window is gone without 'done'
         "$TMUX" list-windows -t "$SESSION" -F '#W' 2>/dev/null | grep -qxF "$w" || inbox_log "$f" failed "$w" "session ended without done"
     done < <(awk -F'\t' '{l[$2]=$0} END{for(k in l)print l[k]}' "$st")
 }
-# Inbox relay (hub): every subfolder INBOX_DIR/<target>/ is an outbox for another machine. The watchdog sends each file in it
+# Hub of auto routing (inbox relay): every subfolder INBOX_DIR/<target>/ is an outbox for another machine. The watchdog sends each file in it
 # to that machine's inbox (no Claude session here) and moves it to <target>/.sent (kept 7 days). Targets are listed in
 # $TARGET_DIR/inbox-relay.conf, one per line: "<target> <ssh options and user@host>", e.g.
 #   laptop -i ~/.claude/inbox-keys/laptop/send -p 22 me@192.168.1.20
@@ -477,7 +477,7 @@ case "${1:-status}" in
                     printf '%s  %-7s %s%s\n' "$(date -d @"$t" '+%m-%d %H:%M' 2>/dev/null || date -r "$t" '+%m-%d %H:%M')" "$s" "$f" "${note:+  ($note)}"
                 done < <(latest) ;;
             register|bind|unbind|machines|remove)
-                # Hub administration (see README, "Inbox relay"). Paths can be changed in service.env for hubs with a special layout.
+                # Hub administration (see README, "Hub of auto routing"). Paths can be changed in service.env for hubs with a special layout.
                 sub="$2"; shift 2
                 IK="$TARGET_DIR/inbox-keys"; RELAY="$TARGET_DIR/inbox-relay.conf"
                 ROUTES="${INBOX_ROUTES:-$TARGET_DIR/inbox-routes}"; AK="${INBOX_AUTH_KEYS:-$HOME/.ssh/authorized_keys}"

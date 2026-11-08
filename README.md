@@ -70,7 +70,7 @@ Created on the first install and never overwritten. The watchdog re-reads it eve
 | `CLAUDE_PERMISSION_MODE` | `bypassPermissions` | Both modes. Default allows everything without asking (any command, any file). Other values: `acceptEdits`, `auto`, `default`, `dontAsk`, `plan`. Empty = Claude's normal questions. Applies when the session next starts. |
 | `CLAUDE_DEBUG` | `no` | `yes` keeps a debug log in `~/.claude/logs/rc-debug.log` (both modes). Turn it on to find out why Remote Control drops. Applies when the session next starts; a file over 20 MB is moved to `rc-debug.log.1` by the watchdog. In `server` mode the running session always logs to `rc-run.log` (needed for `SKIP_ARCHIVED`), which is appended to `rc-debug.log` when the next run starts. |
 | `INBOX_WATCH` | `no` | `yes` makes the watchdog (once a minute) look in `INBOX_DIR` and, for each new or changed file, tell Claude in one line with the file names. `session` mode: the line is typed into the running conversation. `server` mode: a new Remote Control session named `inbox <host> <date time>` is started for the delivery (own tmux window, shows up in claude.ai/code). Its first prompt asks it to note the outcome in the Handover section of `~/.claude/CLAUDE.md` and then close its own window (`tmux kill-window -t "$TMUX_PANE"`), so inbox sessions do not pile up. Only names matching `[A-Za-z0-9._-]` are announced, the contents are never typed into the session, and the line tells Claude to treat them as data from the sender. The first run only remembers the files already there. State: `~/.claude/state/inbox-seen`. **Status ledger** (2.11.0): every delivery is also written to `~/.claude/state/inbox-status` (`open`, `done`, `failed`). The inbox session marks it with `claude-service inbox done <file> "outcome"` before closing; if its window disappears without that, the watchdog marks it `failed`. The session hook prints open/failed items and the last 24 h of done items at session start, so other sessions on the machine see what is waiting or handled. `claude-service inbox [list\|all\|summary\|done ...]`. |
-| `INBOX_DIR` | `~/inbox` | Directory for `INBOX_WATCH`. Subfolders are relay outboxes (see [Inbox relay](#inbox-relay-this-machine-as-a-hub)). |
+| `INBOX_DIR` | `~/inbox` | Directory for `INBOX_WATCH`. Subfolders are relay outboxes (see [Hub of auto routing](#hub-of-auto-routing)). |
 | `CLAUDE_TOKEN_FILE` | empty | Deprecated, ignored (setup-token tokens do not work for Remote Control, see below). |
 | `SKIP_ARCHIVED` | `yes` | `server` mode: if you archived the session in claude.ai/code, Claude exits; the watchdog then starts it again **without** `--continue`, so the archived session is not reattached (and thereby un-archived). The machine stays listed with no session open. Detected from the run's own debug log `~/.claude/logs/rc-run.log` (emptied at every start; with `CLAUDE_DEBUG=yes` it is appended to `rc-debug.log`). `no` = always `--continue`. |
 
@@ -129,7 +129,9 @@ Notes:
 - To revoke a sender, delete its line in `authorized_keys`.
 - For the opposite direction (this machine fetching files from another one), use the same pattern there with a forced command that prints one file from a fixed directory.
 
-## Inbox relay: this machine as a hub
+## Hub of auto routing
+
+The **hub of auto routing** (also called the inbox relay) lets one machine pass files between all the others.
 
 A machine that every other machine can reach (the **hub**) can pass messages between them **without opening a session itself**. Each subfolder `INBOX_DIR/<target>/` is an outbox for one target machine.
 
@@ -144,7 +146,7 @@ A machine that every other machine can reach (the **hub**) can pass messages bet
 
 Only listed pairs can talk, each message is max 64 KiB, and the hub log shows who sent what to whom. Content is still data from the sender, not instructions.
 
-### Registering and binding machines
+### Registering and binding machines (hub of auto routing)
 
 On the hub, `claude-service inbox` does the bookkeeping so nothing has to be edited by hand:
 
