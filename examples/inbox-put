@@ -5,22 +5,33 @@
 # The sender runs:  ssh -i <key> <user>@<this host> put <name> < file
 # and the file is stored as $INBOX_DIR/<sender>-<name> (mode 600, max 64 KiB). Nothing else is
 # allowed: no shell, no reading, no other commands. Without a sender argument names are kept as is.
+# Relay: "put <target>/<name>" stores the file as $INBOX_DIR/<target>/<sender>-<name>, where the watchdog
+# forwards it to <target> (README, "Inbox relay"). Only allowed if INBOX_ROUTES (default ~/.claude/inbox-routes,
+# lines "<sender> <target>") lists the pair; the target folder must exist.
 set -euo pipefail
 umask 077
 INBOX_DIR=${INBOX_DIR:-$HOME/inbox}
+INBOX_ROUTES=${INBOX_ROUTES:-$HOME/.claude/inbox-routes}
 sender=${1:-}
 read -r cmd name extra <<< "${SSH_ORIGINAL_COMMAND:-}"
+dir=$INBOX_DIR
+if [[ "${name:-}" =~ ^([A-Za-z0-9][A-Za-z0-9._-]{0,30})/([A-Za-z0-9][A-Za-z0-9._-]{0,63})$ ]]; then
+    target=${BASH_REMATCH[1]}; name=${BASH_REMATCH[2]}; dir="$INBOX_DIR/$target"
+    if [ -z "$sender" ] || ! grep -qx "$sender $target" "$INBOX_ROUTES" 2>/dev/null || [ ! -d "$dir" ]; then
+        echo "no route to $target" >&2; exit 4
+    fi
+fi
 if [ "$cmd" != put ] || [ -n "${extra:-}" ] || ! [[ "${name:-}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; then
-    echo "usage: ssh <user>@<host> put <name> < file" >&2
+    echo "usage: ssh <user>@<host> put [<target>/]<name> < file" >&2
     exit 2
 fi
-mkdir -p "$INBOX_DIR"
-tmp=$(mktemp "$INBOX_DIR/.put.XXXXXX")
+mkdir -p "$dir"
+tmp=$(mktemp "$dir/.put.XXXXXX")
 head -c 65537 > "$tmp"
 if [ "$(stat -c %s "$tmp" 2>/dev/null || stat -f %z "$tmp")" -gt 65536 ]; then
     rm -f "$tmp"; echo "too big (max 64 KiB)" >&2; exit 3
 fi
 [ -z "$sender" ] || name="$sender-$name"
-mv -f "$tmp" "$INBOX_DIR/$name"
-logger -t inbox-put "${sender:-unnamed sender} stored $INBOX_DIR/$name" 2>/dev/null || true
+mv -f "$tmp" "$dir/$name"
+logger -t inbox-put "${sender:-unnamed sender} stored $dir/$name" 2>/dev/null || true
 echo "stored $name"

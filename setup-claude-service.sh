@@ -5,7 +5,7 @@ set -e
 
 # === FIRST-INSTALL DEFAULTS (override with environment variables) ===
 # They are written once to ~/.claude/service.env; edit that file afterwards, the watchdog re-reads it every minute.
-SCRIPT_VERSION="2.13.0"
+SCRIPT_VERSION="2.13.1"
 # Repo with shared hooks/tasks: the only place that names it. Change this line when the repo moves (e.g. to GitHub).
 # Private repo: use an SSH URL with a deploy key, or a URL with a read-only token. Empty = no syncing.
 GIT_REPO_URL="${GIT_REPO_URL-https://github.com/rokdd/claude-rc-service.git}"
@@ -171,7 +171,7 @@ inbox_sweep() {   # an open delivery whose session window is gone without 'done'
 # Inbox relay (hub): every subfolder INBOX_DIR/<target>/ is an outbox for another machine. The watchdog sends each file in it
 # to that machine's inbox (no Claude session here) and moves it to <target>/.sent (kept 7 days). Targets are listed in
 # $TARGET_DIR/inbox-relay.conf, one per line: "<target> <ssh options and user@host>", e.g.
-#   amelie -i /srv/data/config/amelie-ssh/id_ed25519 -p 58992 wheel@192.168.155.23
+#   laptop -i ~/.claude/inbox-keys/laptop/send -p 22 me@192.168.1.20
 # The remote side must offer "put <name>" (examples/inbox-put). A file that cannot be delivered for a day goes to <target>/.failed.
 inbox_relay() {
     local conf="$TARGET_DIR/inbox-relay.conf" t args d f n m cnt a
@@ -184,7 +184,7 @@ inbox_relay() {
             [ -f "$f" ] || continue
             n=$(basename "$f")
             [[ "$n" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || continue
-            m=$(stat -c %Y "$f" 2>/dev/null) || continue
+            m=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null) || continue
             [ $(( $(date +%s) - m )) -ge 3 ] || continue
             [ $(( cnt += 1 )) -le 20 ] || break
             if ssh -o BatchMode=yes -o ConnectTimeout=10 "${a[@]}" put "$n" < "$f" > /dev/null 2>&1; then
@@ -497,13 +497,19 @@ case "${1:-status}" in
                     [ -n "$from" ] || { h="${host#*@}"; [[ "$h" =~ ^[0-9.]+$ ]] && from="$h"; }
                     [ -f "$REPO_DIR/examples/inbox-put" ] || { echo "$REPO_DIR/examples/inbox-put missing (set GIT_REPO_URL and update)"; exit 1; }
                     ! grep -qE "^$name( |$)" "$RELAY" 2>/dev/null && [ ! -e "$IK/$name" ] || { echo "$name is already registered (inbox remove $name first)"; exit 1; }
+                    if [ ! -e "$AK" ]; then   # fresh account: create ~/.ssh and the file
+                        mkdir -p "$(dirname "$AK")" && chmod 700 "$(dirname "$AK")" && : > "$AK" && chmod 600 "$AK" || { echo "cannot create $AK"; exit 1; }
+                    fi
                     canw "$AK" || { echo "(needs sudo for $AK)"; }
+                    if [ ! -x "$PUTCMD" ]; then   # fresh hub: install the forced command from the repo
+                        d=$(dirname "$PUTCMD"); mkdir -p "$d" 2>/dev/null; cp "$REPO_DIR/examples/inbox-put" "$PUTCMD" 2>/dev/null || sudo cp "$REPO_DIR/examples/inbox-put" "$PUTCMD"; chmod 755 "$PUTCMD" 2>/dev/null || sudo chmod 755 "$PUTCMD"; echo "installed $PUTCMD"
+                    fi
                     mkdir -p "$IK/$name" && chmod 700 "$IK" "$IK/$name"
                     ssh-keygen -q -t ed25519 -N '' -C "$HUBNAME-to-$name" -f "$IK/$name/send"       # hub -> machine
                     ssh-keygen -q -t ed25519 -N '' -C "$name-to-$HUBNAME" -f "$IK/$name/recv"       # machine -> hub
                     sp=$(cut -d' ' -f1,2 "$IK/$name/recv.pub")
                     printf 'restrict%s,command="%s %s" %s %s-to-%s\n' "${from:+,from=\"$from\"}" "$PUTCMD" "$name" "$sp" "$name" "$HUBNAME" | append "$AK"
-                    od=$(stat -c %U "$IDIR"); og=$(stat -c %G "$IDIR")
+                    od=$(stat -c %U "$IDIR" 2>/dev/null || stat -f %Su "$IDIR"); og=$(stat -c %G "$IDIR" 2>/dev/null || stat -f %Sg "$IDIR")
                     if [ -w "$IDIR" ] && [ "$od" = "$(id -un)" ]; then mkdir -p "$IDIR/$name"; chmod 2770 "$IDIR/$name"; else sudo install -d -o "$od" -g "$og" -m 2770 "$IDIR/$name"; fi
                     echo "$name -i $IK/$name/send -p $port $host" | append "$RELAY"
                     hb="${HUB#*@}"; hp=22; [[ "$hb" == *:* ]] && { hp="${hb##*:}"; hb="${hb%%:*}"; }
@@ -524,6 +530,7 @@ case "${1:-status}" in
                     echo "registered $name: folder $IDIR/$name, key line in $AK, relay line in $RELAY (no routes yet: claude-service inbox bind <from> $name)"
                     echo "Setup bundle: $B (contains a private key; copy it to $name by hand, run it there once, then shred -u it here and there). Not printed."
                     [ -n "$from" ] || echo "Note: no --from address given, the key line has no from= restriction."
+                    [ "${INBOX_WATCH:-no}" = "yes" ] || echo "Note: INBOX_WATCH is not \"yes\" in service.env, so the watchdog will not relay (set it to yes)."
                     echo "Activation: the relay picks up the new target within a minute if the watchdog is 2.12.0 or newer." ;;
                 bind|unbind)
                     a="${1:-}"; b="${2:-}"; both="${3:-}"

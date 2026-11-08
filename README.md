@@ -131,12 +131,12 @@ Notes:
 
 ## Inbox relay: this machine as a hub
 
-A machine that every other machine can reach (here: beat) can pass messages between them **without opening a session itself**. Each subfolder `INBOX_DIR/<target>/` is an outbox for one target machine.
+A machine that every other machine can reach (the **hub**) can pass messages between them **without opening a session itself**. Each subfolder `INBOX_DIR/<target>/` is an outbox for one target machine.
 
 1. **Sender** delivers to the hub with the folder in the name: `ssh -i <key> <user>@<hub> put <target>/<name> < file`. The forced command ([`examples/inbox-put`](examples/inbox-put)) accepts this only if `~/.claude/inbox-routes` (or `INBOX_ROUTES`) has a line `<sender> <target>` and the folder exists; otherwise it answers `no route to <target>`. The file is stored as `INBOX_DIR/<target>/<sender>-<name>`.
 2. **Hub**: list the targets in `~/.claude/inbox-relay.conf`, one per line, `<target> <ssh options and user@host>`:
    ```
-   amelie -i /srv/data/config/amelie-ssh/id_ed25519 -p 58992 wheel@192.168.155.23
+   laptop -i ~/.claude/inbox-keys/laptop/send -p 22 me@192.168.1.20
    ```
    Once a minute the watchdog (needs `INBOX_WATCH="yes"`) sends every file in `INBOX_DIR/<target>/` with `ssh ... put <sender>-<name>`, moves it to `<target>/.sent/` (deleted after 7 days) and writes a line to its log and to `logger -t inbox-relay`. No Claude session starts on the hub. Unreachable target: retry every minute; after a day the file goes to `<target>/.failed/` and shows as failed in `claude-service inbox`.
 3. **Target** just gets a normal inbox file `<sender>-<name>` (its own `inbox-put`, session as usual).
