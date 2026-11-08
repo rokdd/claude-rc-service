@@ -5,7 +5,7 @@ set -e
 
 # === FIRST-INSTALL DEFAULTS (override with environment variables) ===
 # They are written once to ~/.claude/service.env; edit that file afterwards, the watchdog re-reads it every minute.
-SCRIPT_VERSION="2.11.0"
+SCRIPT_VERSION="2.12.0"
 # Repo with shared hooks/tasks: the only place that names it. Change this line when the repo moves (e.g. to GitHub).
 # Private repo: use an SSH URL with a deploy key, or a URL with a read-only token. Empty = no syncing.
 GIT_REPO_URL="${GIT_REPO_URL-https://github.com/rokdd/claude-rc-service.git}"
@@ -161,6 +161,38 @@ inbox_sweep() {   # an open delivery whose session window is gone without 'done'
         [ "$s" = "open" ] && [ -n "$w" ] && [ $(( $(date +%s) - t )) -ge 90 ] || continue
         "$TMUX" list-windows -t "$SESSION" -F '#W' 2>/dev/null | grep -qxF "$w" || inbox_log "$f" failed "$w" "session ended without done"
     done < <(awk -F'\t' '{l[$2]=$0} END{for(k in l)print l[k]}' "$st")
+}
+# Inbox relay (hub): every subfolder INBOX_DIR/<target>/ is an outbox for another machine. The watchdog sends each file in it
+# to that machine's inbox (no Claude session here) and moves it to <target>/.sent (kept 7 days). Targets are listed in
+# $TARGET_DIR/inbox-relay.conf, one per line: "<target> <ssh options and user@host>", e.g.
+#   amelie -i /srv/data/config/amelie-ssh/id_ed25519 -p 58992 wheel@192.168.155.23
+# The remote side must offer "put <name>" (examples/inbox-put). A file that cannot be delivered for a day goes to <target>/.failed.
+inbox_relay() {
+    local conf="$TARGET_DIR/inbox-relay.conf" t args d f n m cnt a
+    [ -f "$conf" ] || return 0
+    while read -r t args; do
+        case "$t" in ''|\#*) continue ;; esac
+        [[ "$t" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,30}$ ]] && [ -n "$args" ] && [ -d "$INBOX_DIR/$t" ] || continue
+        d="$INBOX_DIR/$t"; cnt=0; read -ra a <<< "$args"
+        for f in "$d"/*; do
+            [ -f "$f" ] || continue
+            n=$(basename "$f")
+            [[ "$n" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || continue
+            m=$(stat -c %Y "$f" 2>/dev/null) || continue
+            [ $(( $(date +%s) - m )) -ge 3 ] || continue
+            [ $(( cnt += 1 )) -le 20 ] || break
+            if ssh -o BatchMode=yes -o ConnectTimeout=10 "${a[@]}" put "$n" < "$f" > /dev/null 2>&1; then
+                mkdir -p "$d/.sent" && mv -f "$f" "$d/.sent/$n"
+                echo "[$(date)] Inbox relay: $n -> $t"
+                logger -t inbox-relay "$n -> $t" 2>/dev/null || true
+            elif [ $(( $(date +%s) - m )) -ge 86400 ]; then
+                mkdir -p "$d/.failed" && mv -f "$f" "$d/.failed/$n"
+                inbox_log "$t/$n" failed "" "relay to $t failed for a day"
+                echo "[$(date)] Inbox relay: $n -> $t FAILED for a day, moved to $d/.failed"
+            fi
+        done
+        [ -d "$d/.sent" ] && find "$d/.sent" -type f -mtime +7 -delete 2>/dev/null
+    done < "$conf"
 }
 inbox_check() {
     local seen="$TARGET_DIR/state/inbox-seen" first=0 f n m sig new=""
@@ -342,8 +374,9 @@ PY
         echo "[$(date)] No connection to api.anthropic.com, retrying"
     fi
 
-    if [ "$INBOX_WATCH" = "yes" ] && "$TMUX" has-session -t "$SESSION" 2>/dev/null; then
-        inbox_check
+    if [ "$INBOX_WATCH" = "yes" ]; then
+        inbox_relay
+        "$TMUX" has-session -t "$SESSION" 2>/dev/null && inbox_check
     fi
 
     sleep "$CHECK_EVERY"
