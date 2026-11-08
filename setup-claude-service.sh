@@ -546,7 +546,7 @@ $b $a"
                     while read -r t args; do
                         case "$t" in ''|\#*) continue ;; esac
                         q=$(find "$IDIR/$t" -maxdepth 1 -type f 2>/dev/null | wc -l); fl=$(find "$IDIR/$t/.failed" -type f 2>/dev/null | wc -l)
-                        st=""; if [ "${1:-}" = "--check" ]; then read -ra a <<< "$args"; if ssh -o BatchMode=yes -o ConnectTimeout=4 "${a[@]}" noop 2>&1 | grep -q usage; then st="  reachable"; else st="  NOT reachable"; fi; fi
+                        st=""; if [ "${1:-}" = "--check" ]; then read -ra a <<< "$args"; if ssh -n -o BatchMode=yes -o ConnectTimeout=4 "${a[@]}" noop 2>&1 | grep -q usage; then st="  reachable"; else st="  NOT reachable"; fi; fi
                         printf '  %-12s waiting %s, failed %s%s\n' "$t" "$q" "$fl" "$st"
                     done < "$RELAY" 2>/dev/null
                     echo "Senders (keys in $AK):"; rd "$AK" | grep -o ' [A-Za-z0-9._-]*-to-[A-Za-z0-9._-]*$' | sed 's/^ /  /'
