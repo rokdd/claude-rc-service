@@ -5,7 +5,7 @@ set -e
 
 # === FIRST-INSTALL DEFAULTS (override with environment variables) ===
 # They are written once to ~/.claude/service.env; edit that file afterwards, the watchdog re-reads it every minute.
-SCRIPT_VERSION="2.12.0"
+SCRIPT_VERSION="2.13.0"
 # Repo with shared hooks/tasks: the only place that names it. Change this line when the repo moves (e.g. to GitHub).
 # Private repo: use an SSH URL with a deploy key, or a URL with a read-only token. Empty = no syncing.
 GIT_REPO_URL="${GIT_REPO_URL-https://github.com/rokdd/claude-rc-service.git}"
@@ -123,6 +123,12 @@ fi
 add_setting() { grep -q "^$1=" "$ENV_FILE" || printf '%s\n%s="%s"\n' "$2" "$1" "$3" >> "$ENV_FILE"; }
 add_setting INBOX_WATCH "# yes = tell the session when new or changed files appear in INBOX_DIR (it gets one line with the file names, never the contents)" "$INBOX_WATCH"
 add_setting INBOX_DIR "# Directory watched for the inbox (files dropped by other machines or scripts)" "$INBOX_DIR"
+add_setting INBOX_AUTH_KEYS "# Hub only (claude-service inbox register): authorized_keys file that holds the sender keys (empty = ~/.ssh/authorized_keys)" "${INBOX_AUTH_KEYS:-}"
+add_setting INBOX_PUT_CMD "# Hub only: forced command of the sender keys (empty = ~/bin/inbox-put)" "${INBOX_PUT_CMD:-}"
+add_setting INBOX_ROUTES "# Hub only: allowed sender/target pairs, one 'sender target' per line (empty = ~/.claude/inbox-routes)" "${INBOX_ROUTES:-}"
+add_setting INBOX_HUB "# Hub only: how machines reach this hub, user@address[:port] (shown in setup bundles; empty = user@hostname)" "${INBOX_HUB:-}"
+add_setting INBOX_HUB_NAME "# Hub only: name used in key comments and file names of setup bundles (empty = hostname)" "${INBOX_HUB_NAME:-}"
+add_setting INBOX_HUB_IP "# Hub only: this hub's address, written as from= into the keys that machines accept (empty = no from= restriction)" "${INBOX_HUB_IP:-}"
 add_setting CLAUDE_TOKEN_FILE "# File (chmod 600) with a long-lived token from 'claude setup-token', used as CLAUDE_CODE_OAUTH_TOKEN instead of the /login session. Empty = /login" "$CLAUDE_TOKEN_FILE"
 
 # 5. Watchdog script (written to a temp file and moved into place: a running copy keeps its old content)
@@ -470,7 +476,89 @@ case "${1:-status}" in
                     [ "$2" = "all" ] || [ "$s" != "done" ] || continue
                     printf '%s  %-7s %s%s\n' "$(date -d @"$t" '+%m-%d %H:%M' 2>/dev/null || date -r "$t" '+%m-%d %H:%M')" "$s" "$f" "${note:+  ($note)}"
                 done < <(latest) ;;
-            *) echo "Usage: claude-service inbox [list|all|summary|done <file...> [outcome]]"; exit 1 ;;
+            register|bind|unbind|machines|remove)
+                # Hub administration (see README, "Inbox relay"). Paths can be changed in service.env for hubs with a special layout.
+                sub="$2"; shift 2
+                IK="$TARGET_DIR/inbox-keys"; RELAY="$TARGET_DIR/inbox-relay.conf"
+                ROUTES="${INBOX_ROUTES:-$TARGET_DIR/inbox-routes}"; AK="${INBOX_AUTH_KEYS:-$HOME/.ssh/authorized_keys}"
+                PUTCMD="${INBOX_PUT_CMD:-$HOME/bin/inbox-put}"; HUB="${INBOX_HUB:-$(id -un)@$(hostname -s)}"; HUBNAME="${INBOX_HUB_NAME:-$(hostname -s)}"
+                IDIR="${INBOX_DIR:-$HOME/inbox}"
+                nm_ok() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,30}$ ]]; }
+                canw() { [ -w "$1" ] || { [ ! -e "$1" ] && [ -w "$(dirname "$1")" ]; }; }
+                append() { if canw "$1"; then cat >> "$1"; else sudo tee -a "$1" > /dev/null; fi; }   # append stdin
+                rewrite() { if canw "$1"; then cat > "$1"; else sudo tee "$1" > /dev/null; fi; }       # replace content from stdin, keeps owner/mode
+                rd() { cat "$1" 2>/dev/null || sudo cat "$1" 2>/dev/null; }                              # read, with sudo for files of another user
+                rm_lines() { local f="$1" re="$2" tmp; [ -e "$f" ] || return 0; tmp=$(mktemp); rd "$f" | grep -v -E -- "$re" > "$tmp" || true; rewrite "$f" < "$tmp"; rm -f "$tmp"; }
+                case "$sub" in
+                register)
+                    name="${1:-}"; shift || true; host=""; port=22; from=""
+                    while [ $# -gt 0 ]; do case "$1" in --host) host="$2"; shift 2 ;; --port) port="$2"; shift 2 ;; --from) from="$2"; shift 2 ;; *) echo "unknown option $1"; exit 1 ;; esac; done
+                    nm_ok "$name" && [[ "$host" =~ ^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+$ ]] && [[ "$port" =~ ^[0-9]{1,5}$ ]] || { echo "Usage: claude-service inbox register <name> --host <user@address> [--port N] [--from <ip>]"; exit 1; }
+                    [ -n "$from" ] || { h="${host#*@}"; [[ "$h" =~ ^[0-9.]+$ ]] && from="$h"; }
+                    [ -f "$REPO_DIR/examples/inbox-put" ] || { echo "$REPO_DIR/examples/inbox-put missing (set GIT_REPO_URL and update)"; exit 1; }
+                    ! grep -qE "^$name( |$)" "$RELAY" 2>/dev/null && [ ! -e "$IK/$name" ] || { echo "$name is already registered (inbox remove $name first)"; exit 1; }
+                    canw "$AK" || { echo "(needs sudo for $AK)"; }
+                    mkdir -p "$IK/$name" && chmod 700 "$IK" "$IK/$name"
+                    ssh-keygen -q -t ed25519 -N '' -C "$HUBNAME-to-$name" -f "$IK/$name/send"       # hub -> machine
+                    ssh-keygen -q -t ed25519 -N '' -C "$name-to-$HUBNAME" -f "$IK/$name/recv"       # machine -> hub
+                    sp=$(cut -d' ' -f1,2 "$IK/$name/recv.pub")
+                    printf 'restrict%s,command="%s %s" %s %s-to-%s\n' "${from:+,from=\"$from\"}" "$PUTCMD" "$name" "$sp" "$name" "$HUBNAME" | append "$AK"
+                    od=$(stat -c %U "$IDIR"); og=$(stat -c %G "$IDIR")
+                    if [ -w "$IDIR" ] && [ "$od" = "$(id -un)" ]; then mkdir -p "$IDIR/$name"; chmod 2770 "$IDIR/$name"; else sudo install -d -o "$od" -g "$og" -m 2770 "$IDIR/$name"; fi
+                    echo "$name -i $IK/$name/send -p $port $host" | append "$RELAY"
+                    hb="${HUB#*@}"; hp=22; [[ "$hb" == *:* ]] && { hp="${hb##*:}"; hb="${hb%%:*}"; }
+                    B="$TARGET_DIR/inbox-bundle-$name.sh"; ( umask 077
+                    {
+                      echo '#!/bin/bash'
+                      echo "# Setup bundle for machine '$name' (made $(date '+%F %H:%M') on $HUBNAME). It holds a PRIVATE key: run it once on $name, then delete it."
+                      echo 'set -e'; echo 'mkdir -p "$HOME/bin" "$HOME/inbox" "$HOME/.ssh"; chmod 700 "$HOME/.ssh"'
+                      echo "cat > \"\$HOME/bin/inbox-put\" <<'PUT_EOF'"; cat "$REPO_DIR/examples/inbox-put"; echo 'PUT_EOF'; echo 'chmod 755 "$HOME/bin/inbox-put"'
+                      echo "# $HUBNAME -> $name (write-only inbox)"
+                      echo "echo 'restrict${INBOX_HUB_IP:+,from=\"$INBOX_HUB_IP\"},command=\"'\"\$HOME\"'/bin/inbox-put\" $(cut -d' ' -f1,2 "$IK/$name/send.pub") $HUBNAME-to-$name' >> \"\$HOME/.ssh/authorized_keys\"; chmod 600 \"\$HOME/.ssh/authorized_keys\""
+                      echo "# $name -> $HUBNAME"
+                      echo "(umask 077; cat > \"\$HOME/.ssh/${HUBNAME}_inbox\" <<'KEY_EOF'"; cat "$IK/$name/recv"; echo 'KEY_EOF'; echo ')'
+                      echo "echo 'Done. Send with:  ssh -i ~/.ssh/${HUBNAME}_inbox -p $hp ${HUB%%:*} put [<target>/]<name> < file'"
+                      echo "echo 'Test (accepts the host key; the inbox must have a route first):  echo hi | ssh -i ~/.ssh/${HUBNAME}_inbox -p $hp ${HUB%%:*} put test-from-$name'"
+                      echo "echo 'Incoming files appear in ~/inbox; if this machine runs the Claude service set INBOX_WATCH=yes to get a session per file. On macOS Remote Login must be on.'"
+                    } > "$B" ); chmod 700 "$B"; rm -f "$IK/$name/recv"
+                    echo "registered $name: folder $IDIR/$name, key line in $AK, relay line in $RELAY (no routes yet: claude-service inbox bind <from> $name)"
+                    echo "Setup bundle: $B (contains a private key; copy it to $name by hand, run it there once, then shred -u it here and there). Not printed."
+                    [ -n "$from" ] || echo "Note: no --from address given, the key line has no from= restriction."
+                    echo "Activation: the relay picks up the new target within a minute if the watchdog is 2.12.0 or newer." ;;
+                bind|unbind)
+                    a="${1:-}"; b="${2:-}"; both="${3:-}"
+                    nm_ok "$a" && nm_ok "$b" || { echo "Usage: claude-service inbox $sub <from> <to> [--both]"; exit 1; }
+                    pairs="$a $b"; [ "$both" = "--both" ] && pairs="$pairs
+$b $a"
+                    while read -r x y; do
+                        [ -n "$x" ] || continue
+                        if [ "$sub" = bind ]; then
+                            rd "$AK" | grep -q " $x-to-" || { echo "unknown sender $x: no '$x-to-$HUBNAME' key in $AK"; continue; }
+                            [ -d "$IDIR/$y" ] || { echo "unknown target $y: no folder $IDIR/$y (register it first)"; continue; }
+                            grep -qx "$x $y" "$ROUTES" 2>/dev/null && { echo "$x -> $y already bound"; continue; }
+                            echo "$x $y" | append "$ROUTES"; echo "bound $x -> $y"
+                        else
+                            rm_lines "$ROUTES" "^$x $y\$"; echo "unbound $x -> $y"
+                        fi
+                    done <<< "$pairs" ;;
+                machines)
+                    echo "Targets (outboxes, $RELAY):"
+                    while read -r t args; do
+                        case "$t" in ''|\#*) continue ;; esac
+                        q=$(find "$IDIR/$t" -maxdepth 1 -type f 2>/dev/null | wc -l); fl=$(find "$IDIR/$t/.failed" -type f 2>/dev/null | wc -l)
+                        st=""; if [ "${1:-}" = "--check" ]; then read -ra a <<< "$args"; if ssh -o BatchMode=yes -o ConnectTimeout=4 "${a[@]}" noop 2>&1 | grep -q usage; then st="  reachable"; else st="  NOT reachable"; fi; fi
+                        printf '  %-12s waiting %s, failed %s%s\n' "$t" "$q" "$fl" "$st"
+                    done < "$RELAY" 2>/dev/null
+                    echo "Senders (keys in $AK):"; rd "$AK" | grep -o ' [A-Za-z0-9._-]*-to-[A-Za-z0-9._-]*$' | sed 's/^ /  /'
+                    echo "Routes ($ROUTES):"; sed 's/^\([^ ]*\) \([^ ]*\)$/  \1 -> \2/' "$ROUTES" 2>/dev/null ;;
+                remove)
+                    name="${1:-}"; nm_ok "$name" || { echo "Usage: claude-service inbox remove <name> [-y]"; exit 1; }
+                    if [ "${2:-}" != "-y" ]; then read -r -p "Remove $name (keys, routes, relay line; folder only if empty)? [y/N] " ans; [ "$ans" = y ] || { echo aborted; exit 1; }; fi
+                    rm_lines "$AK" " $name-to-[A-Za-z0-9._-]*\$"; rm_lines "$RELAY" "^$name "; rm_lines "$ROUTES" "(^$name | $name\$)"
+                    rm -rf "$IK/$name" "$TARGET_DIR/inbox-bundle-$name.sh"
+                    if [ -z "$(ls -A "$IDIR/$name" 2>/dev/null | grep -v -x -e .sent -e .failed)" ] && [ -z "$(ls -A "$IDIR/$name/.failed" 2>/dev/null)" ]; then rm -rf "$IDIR/$name" 2>/dev/null || sudo rm -rf "$IDIR/$name"; echo "removed $name"; else echo "removed $name; folder $IDIR/$name kept (not empty)"; fi ;;
+                esac ;;
+            *) echo "Usage: claude-service inbox [list|all|summary|done <file...> [outcome]|register <name> --host user@addr|bind <from> <to> [--both]|unbind|machines [--check]|remove <name>]"; exit 1 ;;
         esac ;;
     restart) restart_service && echo "restarted (a running session ends and is continued)" ;;
     logs)    tail -n "${2:-50}" -f "$LOG" ;;

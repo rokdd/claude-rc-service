@@ -144,6 +144,19 @@ A machine that every other machine can reach (here: beat) can pass messages betw
 
 Only listed pairs can talk, each message is max 64 KiB, and the hub log shows who sent what to whom. Content is still data from the sender, not instructions.
 
+### Registering and binding machines
+
+On the hub, `claude-service inbox` does the bookkeeping so nothing has to be edited by hand:
+
+| Command | What it does |
+|---|---|
+| `inbox register <name> --host <user@address> [--port N] [--from <ip>]` | Creates the outbox folder, two key pairs (hub to machine, machine to hub), the restricted key line for the machine (`from=` its address) and the line in `inbox-relay.conf`, and writes a **setup bundle** `~/.claude/inbox-bundle-<name>.sh`. The machine can talk to nobody yet. |
+| `inbox bind <from> <to> [--both]` / `unbind` | Allows (removes) the route `<from>` -> `<to>`. Both must exist (a key `<from>-to-<hub>`, a folder `<to>`). |
+| `inbox machines [--check]` | Lists targets (waiting/failed files; `--check` tests the ssh login), senders and routes. |
+| `inbox remove <name> [-y]` | Removes keys, routes, relay line and the folder (kept if files are in it). |
+
+The bundle holds the machine's **private** key. It is never printed: copy it to the machine by hand, run it once there (installs `~/bin/inbox-put`, adds the hub's key to `~/.ssh/authorized_keys`, stores the key for sending to the hub, prints the send and test commands) and `shred -u` it on both sides. The new machine's own inbox only opens sessions if it runs this service with `INBOX_WATCH="yes"`. Setting `INBOX_HUB` (`user@address[:port]`), `INBOX_HUB_NAME` and `INBOX_HUB_IP` in `service.env` fills the bundle with the right addresses; `INBOX_AUTH_KEYS`, `INBOX_PUT_CMD` and `INBOX_ROUTES` point to the receiving account's `authorized_keys`, its forced command and the routes file when the hub receives under another account (sudo is used where a file is not writable or readable). Existing machines keep working as they are; `machines` shows them as soon as their key comment is `<name>-to-<hub>`.
+
 ## Session hook
 
 The installer adds a `SessionStart` hook to `~/.claude/settings.json` that runs `~/.claude/session_hook.default.sh`. Whatever the hook prints becomes part of Claude's context when a session starts or resumes.
