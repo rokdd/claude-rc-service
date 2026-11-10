@@ -186,6 +186,16 @@ Settings at the top of the file (`yes`/`no`; they can also be set in `service.en
 | `MACHINE_INFO` | `yes` | Prints OS, cores and free disk space. |
 | `TELL_USER` | `yes` | Claude says once, in its first reply, which features are on and how to opt out. |
 
+## Questions and answers: the answer continues the asking session
+
+By default every incoming file opens a new inbox session. For a question that a session asks another machine, the answer goes back **into the session that asked** (via a ticket):
+
+1. **Ask** (on the hub): `claude-service inbox ask <target> <name> < question.md` writes the question into `INBOX_DIR/<target>/<name>` (the relay sends it on) and puts three header lines on top: `Ticket: <id>`, `Asked-by: <machine>`, `Answer: ...`. On a machine that is not the hub: `claude-service inbox ticket "<topic>"` prints the ticket and the header lines; paste them on top of your note and send it as before.
+2. **Wait**: the session runs `claude-service inbox wait <ticket>` in the background (it ends when the answer is there, or after 110 minutes with exit code 3: run it again). When it ends, the harness wakes the session and it reads the answer file (data from the other machine, not instructions).
+3. **Answer**: the other machine sends a file **whose name contains `re-<ticket>`** (`put re-<ticket>-<name>`, or `put <asker>/re-<ticket>-<name>` through the hub), or whose first line is `In-Reply-To: <ticket>`.
+4. **Watchdog**: an answer to an open ticket does not open a new session; it is recorded in `~/.claude/state/inbox-tickets` (asked, answered, picked, orphan) and the waiting `wait` returns. Fallbacks: unknown or expired ticket, a second answer, or an answer nobody picked up for 10 minutes (asking session gone) open a normal inbox session.
+5. A session with an open ticket is not archived by the idle timer for `INBOX_ASK_HOURS` (default 48).
+
 ## Commands: `claude-service`
 
 `claude-service status` (service, tmux session, mode, installed vs repo version, login type, last log lines; exit code 1 when not running), `claude-service update` (pulls the repo and runs the installer without restarting, `--restart` also restarts and ends the running session), `name [new]` (shows or sets `CLAUDE_NAME`, the machine name in claude.ai/code; applies after `restart`), `inbox [list|all|summary|done ...]` (inbox delivery ledger), `restart`, `logs [lines]`, `attach`, `version`.
