@@ -5,7 +5,7 @@ set -e
 
 # === FIRST-INSTALL DEFAULTS (override with environment variables) ===
 # They are written once to ~/.claude/service.env; edit that file afterwards, the watchdog re-reads it every minute.
-SCRIPT_VERSION="2.13.1"
+SCRIPT_VERSION="2.14.0"
 # Repo with shared hooks/tasks: the only place that names it. Change this line when the repo moves (e.g. to GitHub).
 # Private repo: use an SSH URL with a deploy key, or a URL with a read-only token. Empty = no syncing.
 GIT_REPO_URL="${GIT_REPO_URL-https://github.com/rokdd/claude-rc-service.git}"
@@ -168,6 +168,16 @@ inbox_sweep() {   # an open delivery whose session window is gone without 'done'
         "$TMUX" list-windows -t "$SESSION" -F '#W' 2>/dev/null | grep -qxF "$w" || inbox_log "$f" failed "$w" "session ended without done"
     done < <(awk -F'\t' '{l[$2]=$0} END{for(k in l)print l[k]}' "$st")
 }
+inbox_reap() {   # close inbox session windows idle for INBOX_KEEP_HOURS (0 = never); closing ends (archives) their Remote Control session
+    local h="${INBOX_KEEP_HOURS:-24}" now w a
+    [[ "$h" =~ ^[0-9]+$ ]] && [ "$h" -gt 0 ] || return 0
+    now=$(date +%s)
+    "$TMUX" list-windows -t "$SESSION" -F '#W #{window_activity}' 2>/dev/null | while read -r w a; do
+        [[ "$w" == inbox-* ]] && [[ "$a" =~ ^[0-9]+$ ]] && [ $(( now - a )) -ge $(( h * 3600 )) ] || continue
+        echo "[$(date)] Inbox: closing $w (idle ${h} h)"
+        "$TMUX" kill-window -t "$SESSION:$w" 2>/dev/null
+    done
+}
 # Hub of auto routing (inbox relay): every subfolder INBOX_DIR/<target>/ is an outbox for another machine. The watchdog sends each file in it
 # to that machine's inbox (no Claude session here) and moves it to <target>/.sent (kept 7 days). Targets are listed in
 # $TARGET_DIR/inbox-relay.conf, one per line: "<target> <ssh options and user@host>", e.g.
@@ -233,7 +243,7 @@ inbox_check() {
         # Remote Control session for this delivery; it shows up in claude.ai/code under the name below
         local name="inbox $(hostname -s) $(date '+%m-%d %H:%M')" pm=""
         [ -n "$CLAUDE_PERMISSION_MODE" ] && pm="--permission-mode $(printf '%q' "$CLAUDE_PERMISSION_MODE")"
-        msg="$msg When you are done, note the outcome in the Handover section of ~/.claude/CLAUDE.md (if it matters), run: claude-service inbox done <file names> \"<one-line outcome>\" (this tells the other sessions it was handled), then close this session yourself by running: tmux kill-window -t \"\$TMUX_PANE\""
+        msg="$msg When you are done, note the outcome in the Handover section of ~/.claude/CLAUDE.md (if it matters), run: claude-service inbox done <file names> \"<one-line outcome>\" (this tells the other sessions it was handled), and then stop. If you need a decision from the user, ask it here and wait for the answer (mark it done only after that). Do NOT close or exit this session: it stays open so the user can read it and reply in claude.ai/code; the watchdog closes it after $INBOX_KEEP_HOURS hours without activity."
         echo "[$(date)] Inbox: new session '$name' for$new"
         "$TMUX" new-window -d -t "$SESSION" -n "$win" -c "$WORK_DIR" \
             "$(token_prefix)$(printf '%q' "$CLAUDE") $pm --remote-control $(printf '%q' "$name") $(printf '%q' "$msg")"
@@ -246,7 +256,7 @@ echo "[$(date)] Watchdog started"
 
 while true; do
     # Defaults, then the config file
-    CLAUDE_MODE=server; CLAUDE_NAME=$(hostname -s); WORK_DIR="$HOME"; GIT_REPO_URL=""; CLAUDE_PERMISSION_MODE=bypassPermissions; KEEP_AWAKE=no; CLAUDE_DEBUG=no; INBOX_WATCH=no; INBOX_DIR="$HOME/inbox"; SKIP_ARCHIVED=yes; CLAUDE_TOKEN_FILE=""
+    CLAUDE_MODE=server; CLAUDE_NAME=$(hostname -s); WORK_DIR="$HOME"; GIT_REPO_URL=""; CLAUDE_PERMISSION_MODE=bypassPermissions; KEEP_AWAKE=no; CLAUDE_DEBUG=no; INBOX_WATCH=no; INBOX_DIR="$HOME/inbox"; SKIP_ARCHIVED=yes; CLAUDE_TOKEN_FILE=""; INBOX_KEEP_HOURS=24
     [ -f "$ENV_FILE" ] && . "$ENV_FILE"
 
     # Keep the log small
@@ -383,6 +393,7 @@ PY
     if [ "$INBOX_WATCH" = "yes" ]; then
         inbox_relay
         "$TMUX" has-session -t "$SESSION" 2>/dev/null && inbox_check
+        "$TMUX" has-session -t "$SESSION" 2>/dev/null && inbox_reap
     fi
 
     sleep "$CHECK_EVERY"
