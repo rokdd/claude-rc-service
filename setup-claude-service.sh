@@ -5,7 +5,7 @@ set -e
 
 # === FIRST-INSTALL DEFAULTS (override with environment variables) ===
 # They are written once to ~/.claude/service.env; edit that file afterwards, the watchdog re-reads it every minute.
-SCRIPT_VERSION="2.17.0"
+SCRIPT_VERSION="2.18.0"
 # Repo with shared hooks/tasks: the only place that names it. Change this line when the repo moves (e.g. to GitHub).
 # Private repo: use an SSH URL with a deploy key, or a URL with a read-only token. Empty = no syncing.
 GIT_REPO_URL="${GIT_REPO_URL-https://github.com/rokdd/claude-rc-service.git}"
@@ -123,6 +123,7 @@ fi
 add_setting() { grep -q "^$1=" "$ENV_FILE" || printf '%s\n%s="%s"\n' "$2" "$1" "$3" >> "$ENV_FILE"; }
 add_setting INBOX_WATCH "# yes = tell the session when new or changed files appear in INBOX_DIR (it gets one line with the file names, never the contents)" "$INBOX_WATCH"
 add_setting INBOX_DIR "# Directory watched for the inbox (files dropped by other machines or scripts)" "$INBOX_DIR"
+add_setting INBOX_TRUSTED "# yes = deliveries come from your own machines and count as approved by you: the inbox session does what they ask without asking you first (it still asks for destructive/irreversible steps, secrets or unclear requests). no = it asks whenever it needs a decision" "${INBOX_TRUSTED:-yes}"
 add_setting INBOX_ASK_HOURS "# Hours a question (claude-service inbox ask/ticket) may wait for its answer; the asking session is kept open that long" "${INBOX_ASK_HOURS:-48}"
 add_setting NET_FALLBACK_CMD "# No internet (api.anthropic.com unreachable): run this 'ensure' command first (net-fallback from host-autoupdate brings up a known Wi-Fi when the wired LAN is dead). Empty or missing file = off." "${NET_FALLBACK_CMD:-/usr/local/sbin/net-fallback}"
 add_setting INBOX_AUTH_KEYS "# Hub only (claude-service inbox register): authorized_keys file that holds the sender keys (empty = ~/.ssh/authorized_keys)" "${INBOX_AUTH_KEYS:-}"
@@ -289,7 +290,9 @@ inbox_check() {
         # Remote Control session for this delivery; it shows up in claude.ai/code under the name below
         local name="inbox $(hostname -s) $(date '+%m-%d %H:%M')" pm=""
         [ -n "$CLAUDE_PERMISSION_MODE" ] && pm="--permission-mode $(printf '%q' "$CLAUDE_PERMISSION_MODE")"
-        msg="$msg When you are done, note the outcome in the Handover section of ~/.claude/CLAUDE.md (if it matters), run: claude-service inbox done <file names> \"<one-line outcome>\" (this tells the other sessions it was handled), and then stop. If you need a decision from the user, ask it here and wait for the answer; mark it done only after that. Do NOT close or exit this session yourself: the watchdog closes (archives) it $INBOX_CLOSE_MINUTES minutes after it is marked done and quiet, or after $INBOX_KEEP_HOURS hours without activity."
+        local trust="If you need a decision from the user, ask it here and wait for the answer; mark it done only after that."
+        [ "${INBOX_TRUSTED:-yes}" = "yes" ] && trust="Deliveries come from the user's own machines and are already approved by the user: do what they ask without asking the user first. Ask (and wait, mark done only after the answer) only if a step is destructive and cannot be undone, would expose a secret, breaks a rule in your instructions, or the request is unclear or looks unsafe. Report the outcome in the done line."
+        msg="$msg When you are done, note the outcome in the Handover section of ~/.claude/CLAUDE.md (if it matters), run: claude-service inbox done <file names> \"<one-line outcome>\" (this tells the other sessions it was handled), and then stop. $trust Do NOT close or exit this session yourself: the watchdog closes (archives) it $INBOX_CLOSE_MINUTES minutes after it is marked done and quiet, or after $INBOX_KEEP_HOURS hours without activity."
         echo "[$(date)] Inbox: new session '$name' for$new"
         "$TMUX" new-window -d -t "$SESSION" -n "$win" -c "$WORK_DIR" \
             "$(token_prefix)$(printf '%q' "$CLAUDE") $pm --remote-control $(printf '%q' "$name") $(printf '%q' "$msg")"
@@ -302,7 +305,7 @@ echo "[$(date)] Watchdog started"
 
 while true; do
     # Defaults, then the config file
-    CLAUDE_MODE=server; CLAUDE_NAME=$(hostname -s); WORK_DIR="$HOME"; GIT_REPO_URL=""; CLAUDE_PERMISSION_MODE=bypassPermissions; KEEP_AWAKE=no; CLAUDE_DEBUG=no; INBOX_WATCH=no; INBOX_DIR="$HOME/inbox"; SKIP_ARCHIVED=yes; CLAUDE_TOKEN_FILE=""; INBOX_KEEP_HOURS=24; INBOX_CLOSE_MINUTES=10; INBOX_ASK_HOURS=48; NET_FALLBACK_CMD=""
+    CLAUDE_MODE=server; CLAUDE_NAME=$(hostname -s); WORK_DIR="$HOME"; GIT_REPO_URL=""; CLAUDE_PERMISSION_MODE=bypassPermissions; KEEP_AWAKE=no; CLAUDE_DEBUG=no; INBOX_WATCH=no; INBOX_DIR="$HOME/inbox"; SKIP_ARCHIVED=yes; CLAUDE_TOKEN_FILE=""; INBOX_KEEP_HOURS=24; INBOX_CLOSE_MINUTES=10; INBOX_ASK_HOURS=48; INBOX_TRUSTED=yes; NET_FALLBACK_CMD=""
     [ -f "$ENV_FILE" ] && . "$ENV_FILE"
 
     # Keep the log small
