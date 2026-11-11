@@ -5,7 +5,7 @@ set -e
 
 # === FIRST-INSTALL DEFAULTS (override with environment variables) ===
 # They are written once to ~/.claude/service.env; edit that file afterwards, the watchdog re-reads it every minute.
-SCRIPT_VERSION="2.16.0"
+SCRIPT_VERSION="2.17.0"
 # Repo with shared hooks/tasks: the only place that names it. Change this line when the repo moves (e.g. to GitHub).
 # Private repo: use an SSH URL with a deploy key, or a URL with a read-only token. Empty = no syncing.
 GIT_REPO_URL="${GIT_REPO_URL-https://github.com/rokdd/claude-rc-service.git}"
@@ -124,6 +124,7 @@ add_setting() { grep -q "^$1=" "$ENV_FILE" || printf '%s\n%s="%s"\n' "$2" "$1" "
 add_setting INBOX_WATCH "# yes = tell the session when new or changed files appear in INBOX_DIR (it gets one line with the file names, never the contents)" "$INBOX_WATCH"
 add_setting INBOX_DIR "# Directory watched for the inbox (files dropped by other machines or scripts)" "$INBOX_DIR"
 add_setting INBOX_ASK_HOURS "# Hours a question (claude-service inbox ask/ticket) may wait for its answer; the asking session is kept open that long" "${INBOX_ASK_HOURS:-48}"
+add_setting NET_FALLBACK_CMD "# No internet (api.anthropic.com unreachable): run this 'ensure' command first (net-fallback from host-autoupdate brings up a known Wi-Fi when the wired LAN is dead). Empty or missing file = off." "${NET_FALLBACK_CMD:-/usr/local/sbin/net-fallback}"
 add_setting INBOX_AUTH_KEYS "# Hub only (claude-service inbox register): authorized_keys file that holds the sender keys (empty = ~/.ssh/authorized_keys)" "${INBOX_AUTH_KEYS:-}"
 add_setting INBOX_PUT_CMD "# Hub only: forced command of the sender keys (empty = ~/bin/inbox-put)" "${INBOX_PUT_CMD:-}"
 add_setting INBOX_ROUTES "# Hub only: allowed sender/target pairs, one 'sender target' per line (empty = ~/.claude/inbox-routes)" "${INBOX_ROUTES:-}"
@@ -301,7 +302,7 @@ echo "[$(date)] Watchdog started"
 
 while true; do
     # Defaults, then the config file
-    CLAUDE_MODE=server; CLAUDE_NAME=$(hostname -s); WORK_DIR="$HOME"; GIT_REPO_URL=""; CLAUDE_PERMISSION_MODE=bypassPermissions; KEEP_AWAKE=no; CLAUDE_DEBUG=no; INBOX_WATCH=no; INBOX_DIR="$HOME/inbox"; SKIP_ARCHIVED=yes; CLAUDE_TOKEN_FILE=""; INBOX_KEEP_HOURS=24; INBOX_CLOSE_MINUTES=10; INBOX_ASK_HOURS=48
+    CLAUDE_MODE=server; CLAUDE_NAME=$(hostname -s); WORK_DIR="$HOME"; GIT_REPO_URL=""; CLAUDE_PERMISSION_MODE=bypassPermissions; KEEP_AWAKE=no; CLAUDE_DEBUG=no; INBOX_WATCH=no; INBOX_DIR="$HOME/inbox"; SKIP_ARCHIVED=yes; CLAUDE_TOKEN_FILE=""; INBOX_KEEP_HOURS=24; INBOX_CLOSE_MINUTES=10; INBOX_ASK_HOURS=48; NET_FALLBACK_CMD=""
     [ -f "$ENV_FILE" ] && . "$ENV_FILE"
 
     # Keep the log small
@@ -317,7 +318,13 @@ while true; do
         continue
     fi
 
-    if curl -sI --max-time 10 https://api.anthropic.com/ >/dev/null; then
+    api_ok() { curl -sI --max-time 10 https://api.anthropic.com/ >/dev/null; }
+    # No internet: let net-fallback (host-autoupdate) bring up a known Wi-Fi when the wired LAN is dead
+    if ! api_ok && [ -n "${NET_FALLBACK_CMD:-}" ] && [ -x "$NET_FALLBACK_CMD" ]; then
+        echo "[$(date)] No connection to api.anthropic.com, asking $NET_FALLBACK_CMD ensure"
+        "$NET_FALLBACK_CMD" ensure 2>&1 | tail -3 || true
+    fi
+    if api_ok; then
         # Keep a read-only copy of the repo (fast-forward only, never touches ~/.claude)
         now=$(date +%s)
         if [ -n "$GIT_REPO_URL" ] && [ $((now - last_sync)) -ge "$SYNC_EVERY" ]; then
