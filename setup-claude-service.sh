@@ -5,7 +5,7 @@ set -e
 
 # === FIRST-INSTALL DEFAULTS (override with environment variables) ===
 # They are written once to ~/.claude/service.env; edit that file afterwards, the watchdog re-reads it every minute.
-SCRIPT_VERSION="2.18.0"
+SCRIPT_VERSION="2.19.0"
 # Repo with shared hooks/tasks: the only place that names it. Change this line when the repo moves (e.g. to GitHub).
 # Private repo: use an SSH URL with a deploy key, or a URL with a read-only token. Empty = no syncing.
 GIT_REPO_URL="${GIT_REPO_URL-https://github.com/rokdd/claude-rc-service.git}"
@@ -132,6 +132,10 @@ add_setting INBOX_ROUTES "# Hub only: allowed sender/target pairs, one 'sender t
 add_setting INBOX_HUB "# Hub only: how machines reach this hub, user@address[:port] (shown in setup bundles; empty = user@hostname)" "${INBOX_HUB:-}"
 add_setting INBOX_HUB_NAME "# Hub only: name used in key comments and file names of setup bundles (empty = hostname)" "${INBOX_HUB_NAME:-}"
 add_setting INBOX_HUB_IP "# Hub only: this hub's address, written as from= into the keys that machines accept (empty = no from= restriction)" "${INBOX_HUB_IP:-}"
+add_setting FORGE_URL "# Forgejo/Gitea mentions + assignments (2.19.0): base URL of the forge, e.g. https://git.example.com. With FORGE_TOKEN_FILE set, the watchdog polls the notifications of this machine's bot account and drops one inbox file per assigned/mentioned issue (needs INBOX_WATCH=yes). Empty = off" "${FORGE_URL:-}"
+add_setting FORGE_TOKEN_FILE "# File (chmod 600) with the bot account's token, scopes read:notification, write:notification, write:issue" "${FORGE_TOKEN_FILE:-}"
+add_setting FORGE_ALLOWED_AUTHORS "# Only deliver issues written by / comments from these forge users (space separated). Empty = everybody; set it unless the forge is fully private" "${FORGE_ALLOWED_AUTHORS:-}"
+add_setting FORGE_POLL_SECONDS "# Seconds between forge polls" "${FORGE_POLL_SECONDS:-120}"
 add_setting CLAUDE_TOKEN_FILE "# File (chmod 600) with a long-lived token from 'claude setup-token', used as CLAUDE_CODE_OAUTH_TOKEN instead of the /login session. Empty = /login" "$CLAUDE_TOKEN_FILE"
 
 # 5. Watchdog script (written to a temp file and moved into place: a running copy keeps its old content)
@@ -299,13 +303,25 @@ inbox_check() {
     fi
 }
 
+# Forge mentions/assignments: examples/forge-watch (from the repo copy) writes inbox files for issues that name this bot account.
+last_forge=0
+forge_poll() {
+    [ -n "$FORGE_URL" ] && [ -n "$FORGE_TOKEN_FILE" ] || return 0
+    local now; now=$(date +%s)
+    [ $(( now - last_forge )) -ge "${FORGE_POLL_SECONDS:-120}" ] || return 0
+    last_forge=$now
+    [ -f "$REPO_DIR/examples/forge-watch" ] || { echo "[$(date)] forge-watch missing in $REPO_DIR (set GIT_REPO_URL and update)"; return 0; }
+    FORGE_URL="$FORGE_URL" FORGE_TOKEN_FILE="$FORGE_TOKEN_FILE" FORGE_ALLOWED_AUTHORS="$FORGE_ALLOWED_AUTHORS" INBOX_DIR="$INBOX_DIR" \
+        timeout 90 python3 -I "$REPO_DIR/examples/forge-watch" 2>&1 | sed "s/^/[$(date +%H:%M:%S)] forge-watch: /"
+}
+
 CLAUDE=$(command -v claude)
 TMUX=$(command -v tmux)
 echo "[$(date)] Watchdog started"
 
 while true; do
     # Defaults, then the config file
-    CLAUDE_MODE=server; CLAUDE_NAME=$(hostname -s); WORK_DIR="$HOME"; GIT_REPO_URL=""; CLAUDE_PERMISSION_MODE=bypassPermissions; KEEP_AWAKE=no; CLAUDE_DEBUG=no; INBOX_WATCH=no; INBOX_DIR="$HOME/inbox"; SKIP_ARCHIVED=yes; CLAUDE_TOKEN_FILE=""; INBOX_KEEP_HOURS=24; INBOX_CLOSE_MINUTES=10; INBOX_ASK_HOURS=48; INBOX_TRUSTED=yes; NET_FALLBACK_CMD=""
+    CLAUDE_MODE=server; CLAUDE_NAME=$(hostname -s); WORK_DIR="$HOME"; GIT_REPO_URL=""; CLAUDE_PERMISSION_MODE=bypassPermissions; KEEP_AWAKE=no; CLAUDE_DEBUG=no; INBOX_WATCH=no; INBOX_DIR="$HOME/inbox"; SKIP_ARCHIVED=yes; CLAUDE_TOKEN_FILE=""; INBOX_KEEP_HOURS=24; INBOX_CLOSE_MINUTES=10; INBOX_ASK_HOURS=48; INBOX_TRUSTED=yes; NET_FALLBACK_CMD=""; FORGE_URL=""; FORGE_TOKEN_FILE=""; FORGE_ALLOWED_AUTHORS=""; FORGE_POLL_SECONDS=120
     [ -f "$ENV_FILE" ] && . "$ENV_FILE"
 
     # Keep the log small
@@ -447,6 +463,7 @@ PY
 
     if [ "$INBOX_WATCH" = "yes" ]; then
         inbox_relay
+        forge_poll
         "$TMUX" has-session -t "$SESSION" 2>/dev/null && inbox_check
         "$TMUX" has-session -t "$SESSION" 2>/dev/null && inbox_reap
     fi

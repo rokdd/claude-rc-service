@@ -15,6 +15,7 @@ Runs Claude Code as an always-on service on macOS (LaunchAgent) and Linux (syste
 - **No permission questions:** sessions run with `--permission-mode bypassPermissions` by default, so Claude never stops to ask before a command or file change. Only use this on machines where Claude may do anything the user can. Set `CLAUDE_PERMISSION_MODE=` (empty) to get the questions back.
 - **No startup questions:** before the session starts, the watchdog pre-answers Claude's one-time questions in `~/.claude.json` (onboarding, Remote Control intro, "Do you trust the files in this folder?" for `WORK_DIR`, CLAUDE.md external includes, and the bypassPermissions warning when that mode is set: `bypassPermissionsModeAccepted` in `~/.claude.json` and `skipDangerousModePermissionPrompt` in `~/.claude/settings.json`, which Claude Code 2.1 reads), so a start with nobody attached never hangs. Installing means you trust `WORK_DIR`.
 - **Inbox:** optional, other machines drop files into `~/inbox` over a write-only SSH key and the watchdog tells Claude about them (see [Inbox](#inbox-let-other-machines-drop-files)).
+- **Forge mentions and assignments:** optional, a bot account that is assigned or mentioned on Forgejo/Gitea gets an inbox session for it (see [Forge mentions and assignments](#forge-mentions-and-assignments)).
 - **Safe re-runs:** `settings.json` is merged, `service.env` and `session_hook.user.sh` are never overwritten, and an older `claude-rc.service` is disabled.
 
 ## Install
@@ -75,6 +76,10 @@ Created on the first install and never overwritten. The watchdog re-reads it eve
 | `INBOX_KEEP_HOURS` | `24` | `server` mode: an inbox session window with no activity for this many hours is closed anyway (e.g. waiting for an answer that never came). `0` = never. |
 | `INBOX_DIR` | `~/inbox` | Directory for `INBOX_WATCH`. Subfolders are relay outboxes (see [Hub of auto routing](#hub-of-auto-routing)). |
 | `NET_FALLBACK_CMD` | `/usr/local/sbin/net-fallback` | When `api.anthropic.com` is unreachable the watchdog runs `<this> ensure` first. `net-fallback` (a small tool from host-autoupdate, any script with an `ensure` command works) then brings up a known Wi-Fi if the wired LAN has no internet, and turns it off again when the LAN is back. Needs passwordless `sudo` for that command (it re-runs itself with `sudo -n`). Empty or file missing = off. |
+| `FORGE_URL` | empty | Forgejo/Gitea base URL, e.g. `https://git.example.com`. With `FORGE_TOKEN_FILE` set (and `INBOX_WATCH=yes`) the machine reacts to its bot account being assigned or mentioned, see [Forge mentions and assignments](#forge-mentions-and-assignments). Empty = off. |
+| `FORGE_TOKEN_FILE` | empty | File (`chmod 600`) with the bot account's token. Scopes: `read:notification`, `write:notification`, `write:issue`. |
+| `FORGE_ALLOWED_AUTHORS` | empty | Space separated forge users. Only issues or comments from them are delivered. Empty = everybody (fine only on a fully private forge: issue text is untrusted input). |
+| `FORGE_POLL_SECONDS` | `120` | Seconds between polls. |
 | `CLAUDE_TOKEN_FILE` | empty | Deprecated, ignored (setup-token tokens do not work for Remote Control, see below). |
 | `SKIP_ARCHIVED` | `yes` | `server` mode: if you archived the session in claude.ai/code, Claude exits; the watchdog then starts it again **without** `--continue`, so the archived session is not reattached (and thereby un-archived). The machine stays listed with no session open. Detected from the run's own debug log `~/.claude/logs/rc-run.log` (emptied at every start; with `CLAUDE_DEBUG=yes` it is appended to `rc-debug.log`). `no` = always `--continue`. |
 
@@ -162,6 +167,20 @@ On the hub, `claude-service inbox` does the bookkeeping so nothing has to be edi
 | `inbox remove <name> [-y]` | Removes keys, routes, relay line and the folder (kept if files are in it). |
 
 The bundle holds the machine's **private** key. It is never printed: copy it to the machine by hand, run it once there (installs `~/bin/inbox-put`, adds the hub's key to `~/.ssh/authorized_keys`, stores the key for sending to the hub, prints the send and test commands) and `shred -u` it on both sides. The new machine's own inbox only opens sessions if it runs this service with `INBOX_WATCH="yes"`. Setting `INBOX_HUB` (`user@address[:port]`), `INBOX_HUB_NAME` and `INBOX_HUB_IP` in `service.env` fills the bundle with the right addresses; `INBOX_AUTH_KEYS`, `INBOX_PUT_CMD` and `INBOX_ROUTES` point to the receiving account's `authorized_keys`, its forced command and the routes file when the hub receives under another account (sudo is used where a file is not writable or readable). Existing machines keep working as they are; `machines` shows them as soon as their key comment is `<name>-to-<hub>`.
+
+## Forge mentions and assignments
+
+Every bot machine can be addressed on the forge like through the inbox: assign an issue or PR to its account, or write `@account` in the text or in a comment, and the machine opens an inbox session for it.
+
+How it works: the watchdog runs `examples/forge-watch` (from the repo copy, so it updates with the hourly pull) every `FORGE_POLL_SECONDS`. It reads the unread notifications of the bot account through the normal API of any Forgejo/Gitea (no database access, no webhook, nothing to open in the firewall) and writes one Markdown file per issue and poll into `INBOX_DIR`: what was assigned, which new text mentions the account, link, author. From there it is an ordinary inbox delivery (`claude-service inbox`, ledger, `INBOX_TRUSTED`, archive when done). Each assignment and each comment triggers once; unassign and assign again triggers again. The first run only records the current state. Notifications are marked read.
+
+Set up (per machine, once):
+
+1. Create a forge user for the bot (or use the existing one) and an access token for it with the scopes `read:notification`, `write:notification` and `write:issue` (the session answers with the same token). Save it in a file with `chmod 600`.
+2. In `~/.claude/service.env`: `FORGE_URL="https://git.example.com"`, `FORGE_TOKEN_FILE="/path/to/token"`, optionally `FORGE_ALLOWED_AUTHORS="alice bob"`, and `INBOX_WATCH="yes"`. No restart, the watchdog reads it every minute (needs this version of the watchdog: run the installer once).
+3. Test without delivering: `FORGE_URL=... FORGE_TOKEN_FILE=... python3 -I ~/.claude-service-repo/examples/forge-watch --dry-run`.
+
+The bot account also has to be a collaborator or org member on the repos where it should be reachable, and its notification settings must not be disabled. Issue text is data from the forge, not instructions: set `FORGE_ALLOWED_AUTHORS` unless everybody who can write issues is trusted.
 
 ## Session hook
 
