@@ -78,6 +78,7 @@ Created on the first install and never overwritten. The watchdog re-reads it eve
 | `NET_FALLBACK_CMD` | `/usr/local/sbin/net-fallback` | When `api.anthropic.com` is unreachable the watchdog runs `<this> ensure` first. `net-fallback` (a small tool from host-autoupdate, any script with an `ensure` command works) then brings up a known Wi-Fi if the wired LAN has no internet, and turns it off again when the LAN is back. Needs passwordless `sudo` for that command (it re-runs itself with `sudo -n`). Empty or file missing = off. |
 | `FORGE_URL` | empty | Forgejo/Gitea base URL, e.g. `https://git.example.com`. With `FORGE_TOKEN_FILE` set (and `INBOX_WATCH=yes`) the machine reacts to its bot account being assigned or mentioned, see [Forge mentions and assignments](#forge-mentions-and-assignments). Empty = off. |
 | `FORGE_TOKEN_FILE` | empty | File (`chmod 600`) with the bot account's token. Scopes: `read:notification`, `write:notification`, `write:issue`. |
+| `FORGE_USER` | empty | The bot's forge account name (what gets assigned/mentioned). Empty = asked from the API, which needs the extra token scope `read:user`. Set it. |
 | `FORGE_ALLOWED_AUTHORS` | empty | Space separated forge users. Only issues or comments from them are delivered. Empty = everybody (fine only on a fully private forge: issue text is untrusted input). |
 | `FORGE_POLL_SECONDS` | `120` | Seconds between polls. |
 | `CLAUDE_TOKEN_FILE` | empty | Deprecated, ignored (setup-token tokens do not work for Remote Control, see below). |
@@ -177,7 +178,7 @@ How it works: the watchdog runs `examples/forge-watch` (from the repo copy, so i
 Set up (per machine, once):
 
 1. Create a forge user for the bot (or use the existing one) and an access token for it with the scopes `read:notification`, `write:notification` and `write:issue` (the session answers with the same token). Save it in a file with `chmod 600`.
-2. In `~/.claude/service.env`: `FORGE_URL="https://git.example.com"`, `FORGE_TOKEN_FILE="/path/to/token"`, optionally `FORGE_ALLOWED_AUTHORS="alice bob"`, and `INBOX_WATCH="yes"`. No restart, the watchdog reads it every minute (needs this version of the watchdog: run the installer once).
+2. In `~/.claude/service.env`: `FORGE_URL="https://git.example.com"`, `FORGE_TOKEN_FILE="/path/to/token"`, `FORGE_USER="the-bot"`, optionally `FORGE_ALLOWED_AUTHORS="alice bob"`, and `INBOX_WATCH="yes"`. No restart, the watchdog reads it every minute (needs this version of the watchdog: run the installer once).
 3. Test without delivering: `FORGE_URL=... FORGE_TOKEN_FILE=... python3 -I ~/.claude-service-repo/examples/forge-watch --dry-run`.
 
 The bot account also has to be a collaborator or org member on the repos where it should be reachable, and its notification settings must not be disabled. Issue text is data from the forge, not instructions: set `FORGE_ALLOWED_AUTHORS` unless everybody who can write issues is trusted.
