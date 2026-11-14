@@ -23,7 +23,7 @@ Settings (environment, set by the watchdog from service.env):
                         set it when the forge is not fully private: issue text is untrusted input for the session)
   FORGE_MARK_READ       yes (default) / no
   INBOX_DIR             where the files go (default ~/inbox)
-State: ~/.claude/state/forge-watch/seen.json. The first run only records what is there (no flood).
+State: ~/.claude/state/forge-watch/seen.json. The first run only records what is there; notifications older than the first run are never delivered; at most FORGE_MAX_PER_POLL (5) files per poll (no flood).
 """
 import json, os, re, sys, urllib.request, urllib.error, urllib.parse
 from datetime import datetime, timedelta, timezone
@@ -38,6 +38,7 @@ ALLOWED = {u.lower() for u in (E("FORGE_ALLOWED_AUTHORS") or "").split()}
 STATE_DIR = os.path.join(HOME, ".claude", "state", "forge-watch")
 DRY = "--dry-run" in sys.argv
 SEEN_MAX = 5000
+MAX_PER_POLL = int(E("FORGE_MAX_PER_POLL") or 5)   # flood brake
 
 
 def api(method, path, data=None):
@@ -56,6 +57,10 @@ def issue_path(url):   # subject URLs carry the forge's own host name (ROOT_URL)
     p = urllib.parse.urlparse(url).path
     i = p.find("/api/v1/")
     return p[i + 7:] if i >= 0 else None
+
+
+def parse_ts(v):
+    return datetime.fromisoformat(v.replace("Z", "+00:00"))
 
 
 def mentions(text, names):
@@ -84,8 +89,16 @@ def main():
     os.makedirs(STATE_DIR, exist_ok=True)
     sf = os.path.join(STATE_DIR, "seen.json")
     first = not os.path.exists(sf)
-    seen = [] if first else json.load(open(sf))
+    since = datetime.now(timezone.utc)   # baseline: notifications older than the first run only get recorded, never delivered
+    seen = []
+    if not first:
+        st = json.load(open(sf))
+        if isinstance(st, list):   # state of version 2.19.1: baseline = file time
+            seen, since = st, datetime.fromtimestamp(os.path.getmtime(sf), timezone.utc)
+        else:
+            seen, since = st["seen"], parse_ts(st["since"])
     seenset = set(seen)
+    delivered = 0
 
     notes = []
     for page in range(1, 6):
@@ -126,10 +139,14 @@ def main():
                 events.append(("mc:%s" % c["id"], "mentioned in a comment", who, c.get("body") or "", c.get("created_at")))
 
         parts = []
+        try: old_note = parse_ts(n.get("updated_at") or "") < since
+        except ValueError: old_note = False
         for key, label, who, text, when in events:
             if key in seenset: continue
             seenset.add(key); seen.append(key)
-            if first: continue   # first run: only record
+            if first or old_note: continue   # first run or notification older than the baseline: only record
+            if delivered >= MAX_PER_POLL:
+                print("limit of %d deliveries per poll reached, recorded only: %s#%s" % (MAX_PER_POLL, repo, num)); continue
             if ALLOWED and who.lower() not in ALLOWED and author.lower() not in ALLOWED:
                 print("ignored %s on %s#%s: author %s not in FORGE_ALLOWED_AUTHORS" % (label, repo, num, who)); continue
             parts.append("## %s by %s (%s)\n\n%s\n" % (label, who, when or "?", text[:6000]))
@@ -140,6 +157,7 @@ def main():
                     "named account (%s): reply with a comment on the issue/PR, close it when done if it was assigned to you. "
                     "Use the forge API with your own token; never print the token.\n\n---\n\n%s"
                     % (me, repo, num, it.get("title", ""), link, author, ", ".join(assignees) or "-", me, "\n".join(parts)))
+            delivered += 1
             write_inbox("forge-%s-%s-%s-%s.md" % (me, repo.replace("/", "_"), num, stamp), body)
 
         if MARK_READ and not DRY and n.get("id") is not None:
@@ -150,7 +168,7 @@ def main():
         keep = [k for k in seen if k in seenset][-SEEN_MAX:]
         keep += [k for k in seenset if k not in keep]
         tmp = sf + ".tmp"
-        json.dump(keep, open(tmp, "w")); os.replace(tmp, sf)
+        json.dump({"seen": keep, "since": since.isoformat()}, open(tmp, "w")); os.replace(tmp, sf)
     if first: print("first run: recorded %d current items, nothing delivered" % len(seenset))
 
 
