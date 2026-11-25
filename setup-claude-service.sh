@@ -5,7 +5,7 @@ set -e
 
 # === FIRST-INSTALL DEFAULTS (override with environment variables) ===
 # They are written once to ~/.claude/service.env; edit that file afterwards, the watchdog re-reads it every minute.
-SCRIPT_VERSION="2.19.2"
+SCRIPT_VERSION="2.20.0"
 # Repo with shared hooks/tasks: the only place that names it. Change this line when the repo moves (e.g. to GitHub).
 # Private repo: use an SSH URL with a deploy key, or a URL with a read-only token. Empty = no syncing.
 GIT_REPO_URL="${GIT_REPO_URL-https://github.com/rokdd/claude-rc-service.git}"
@@ -14,6 +14,7 @@ WORK_DIR="${WORK_DIR:-$HOME}"
 CLAUDE_MODE="${CLAUDE_MODE:-server}"   # server = machine shows up as a computer in claude.ai/code; session = one continued interactive session
 CLAUDE_NAME="${CLAUDE_NAME:-$(hostname -s)}"
 CLAUDE_PERMISSION_MODE="${CLAUDE_PERMISSION_MODE-bypassPermissions}"   # allow everything without asking; empty = Claude's normal questions
+CLAUDE_MODEL="${CLAUDE_MODEL-haiku}"   # model for all sessions: haiku, sonnet, opus or a full model id; empty = Claude Code's default model
 CLAUDE_DEBUG="${CLAUDE_DEBUG:-no}"   # yes = Claude writes a debug log to ~/.claude/logs/rc-debug.log (to find out why Remote Control drops)
 INBOX_WATCH="${INBOX_WATCH:-no}"   # yes = the watchdog tells the session when files appear in INBOX_DIR (file names only)
 INBOX_DIR="${INBOX_DIR:-$HOME/inbox}"
@@ -121,6 +122,7 @@ else
 fi
 # Settings added in later versions: append them to an older config with their default
 add_setting() { grep -q "^$1=" "$ENV_FILE" || printf '%s\n%s="%s"\n' "$2" "$1" "$3" >> "$ENV_FILE"; }
+add_setting CLAUDE_MODEL "# Model for all sessions (2.20.0): haiku, sonnet, opus or a full model id. Empty = Claude Code's default model. Applies when the session next starts." "${CLAUDE_MODEL-haiku}"
 add_setting INBOX_WATCH "# yes = tell the session when new or changed files appear in INBOX_DIR (it gets one line with the file names, never the contents)" "$INBOX_WATCH"
 add_setting INBOX_DIR "# Directory watched for the inbox (files dropped by other machines or scripts)" "$INBOX_DIR"
 add_setting INBOX_TRUSTED "# yes = deliveries come from your own machines and count as approved by you: the inbox session does what they ask without asking you first (it still asks for destructive/irreversible steps, secrets or unclear requests). no = it asks whenever it needs a decision" "${INBOX_TRUSTED:-yes}"
@@ -295,6 +297,7 @@ inbox_check() {
         # Remote Control session for this delivery; it shows up in claude.ai/code under the name below
         local name="inbox $(hostname -s) $(date '+%m-%d %H:%M')" pm=""
         [ -n "$CLAUDE_PERMISSION_MODE" ] && pm="--permission-mode $(printf '%q' "$CLAUDE_PERMISSION_MODE")"
+        [ -n "$CLAUDE_MODEL" ] && pm="$pm --model $(printf '%q' "$CLAUDE_MODEL")"
         local trust="If you need a decision from the user, ask it here and wait for the answer; mark it done only after that."
         [ "${INBOX_TRUSTED:-yes}" = "yes" ] && trust="Deliveries come from the user's own machines and are already approved by the user: do what they ask without asking the user first. Ask (and wait, mark done only after the answer) only if a step is destructive and cannot be undone, would expose a secret, breaks a rule in your instructions, or the request is unclear or looks unsafe. Report the outcome in the done line."
         msg="$msg When you are done, note the outcome in the Handover section of ~/.claude/CLAUDE.md (if it matters), run: claude-service inbox done <file names> \"<one-line outcome>\" (this tells the other sessions it was handled), and then stop. $trust Do NOT close or exit this session yourself: the watchdog closes (archives) it $INBOX_CLOSE_MINUTES minutes after it is marked done and quiet, or after $INBOX_KEEP_HOURS hours without activity."
@@ -322,7 +325,7 @@ echo "[$(date)] Watchdog started"
 
 while true; do
     # Defaults, then the config file
-    CLAUDE_MODE=server; CLAUDE_NAME=$(hostname -s); WORK_DIR="$HOME"; GIT_REPO_URL=""; CLAUDE_PERMISSION_MODE=bypassPermissions; KEEP_AWAKE=no; CLAUDE_DEBUG=no; INBOX_WATCH=no; INBOX_DIR="$HOME/inbox"; SKIP_ARCHIVED=yes; CLAUDE_TOKEN_FILE=""; INBOX_KEEP_HOURS=24; INBOX_CLOSE_MINUTES=10; INBOX_ASK_HOURS=48; INBOX_TRUSTED=yes; NET_FALLBACK_CMD=""; FORGE_URL=""; FORGE_TOKEN_FILE=""; FORGE_USER=""; FORGE_ALLOWED_AUTHORS=""; FORGE_POLL_SECONDS=120
+    CLAUDE_MODE=server; CLAUDE_NAME=$(hostname -s); WORK_DIR="$HOME"; GIT_REPO_URL=""; CLAUDE_PERMISSION_MODE=bypassPermissions; CLAUDE_MODEL=haiku; KEEP_AWAKE=no; CLAUDE_DEBUG=no; INBOX_WATCH=no; INBOX_DIR="$HOME/inbox"; SKIP_ARCHIVED=yes; CLAUDE_TOKEN_FILE=""; INBOX_KEEP_HOURS=24; INBOX_CLOSE_MINUTES=10; INBOX_ASK_HOURS=48; INBOX_TRUSTED=yes; NET_FALLBACK_CMD=""; FORGE_URL=""; FORGE_TOKEN_FILE=""; FORGE_USER=""; FORGE_ALLOWED_AUTHORS=""; FORGE_POLL_SECONDS=120
     [ -f "$ENV_FILE" ] && . "$ENV_FILE"
 
     # Keep the log small
@@ -415,6 +418,7 @@ if pm == "bypassPermissions":
         print("Set skipDangerousModePermissionPrompt in " + sp)
 PY
             PM=""; [ -n "$CLAUDE_PERMISSION_MODE" ] && PM="--permission-mode $CLAUDE_PERMISSION_MODE"
+            [ -n "$CLAUDE_MODEL" ] && PM="$PM --model $CLAUDE_MODEL"
             if [ "$CLAUDE_MODE" = "session" ]; then
                 [ "$CLAUDE_DEBUG" = "yes" ] && PM="$PM --debug-file $DLOG"
                 CMD="'$CLAUDE' --continue --remote-control $PM || '$CLAUDE' --remote-control $PM"
