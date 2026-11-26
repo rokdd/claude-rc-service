@@ -5,7 +5,7 @@ set -e
 
 # === FIRST-INSTALL DEFAULTS (override with environment variables) ===
 # They are written once to ~/.claude/service.env; edit that file afterwards, the watchdog re-reads it every minute.
-SCRIPT_VERSION="2.21.0"
+SCRIPT_VERSION="2.21.1"
 # Repo with shared hooks/tasks: the only place that names it. Change this line when the repo moves (e.g. to GitHub).
 # Private repo: use an SSH URL with a deploy key, or a URL with a read-only token. Empty = no syncing.
 GIT_REPO_URL="${GIT_REPO_URL-https://github.com/rokdd/claude-rc-service.git}"
@@ -425,7 +425,11 @@ if pm == "bypassPermissions":
         print("Set skipDangerousModePermissionPrompt in " + sp)
 PY
             PM=""; [ -n "$CLAUDE_PERMISSION_MODE" ] && PM="--permission-mode $CLAUDE_PERMISSION_MODE"
-            [ -n "$CLAUDE_MODEL" ] && PM="$PM --model $CLAUDE_MODEL"
+            # 'claude remote-control' has no --model in Claude Code 2.1.332+: pass the model as a settings file
+            if [ -n "$CLAUDE_MODEL" ]; then
+                printf '{"model": "%s"}\n' "$CLAUDE_MODEL" > "$TARGET_DIR/rc-settings.json"
+                PM="$PM --settings $TARGET_DIR/rc-settings.json"
+            fi
             if [ "$CLAUDE_MODE" = "session" ]; then
                 [ "$CLAUDE_DEBUG" = "yes" ] && PM="$PM --debug-file $DLOG"
                 CMD="'$CLAUDE' --continue --remote-control $PM || '$CLAUDE' --remote-control $PM"
