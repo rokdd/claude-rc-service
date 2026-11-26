@@ -224,6 +224,18 @@ By default every incoming file opens a new inbox session. For a question that a 
 
 `claude-service status` (service, tmux session, mode, installed vs repo version, login type, last log lines; exit code 1 when not running), `claude-service update` (pulls the repo and runs the installer without restarting, `--restart` also restarts and ends the running session), `name [new]` (shows or sets `CLAUDE_NAME`, the machine name in claude.ai/code; applies after `restart`), `inbox [list|all|summary|done ...]` (inbox delivery ledger), `restart`, `logs [lines]`, `attach`, `version`.
 
+## Sign-in without a browser here: `claude-service login`
+
+When the login has run out (the Remote Control session stops with "not signed in"), the sign-in can be done from anywhere with a browser:
+
+1. `claude-service login` starts `claude auth login --claudeai` in the tmux session `claude-login` (default tmux socket, separate from `claude-service`) and prints the sign-in link. The link is also sent with `LOGIN_NOTIFY_CMD`, which runs with the text in `$CLAUDE_LOGIN_MESSAGE` (empty = print only).
+2. Open the link, sign in, and copy the code the page shows.
+3. Send the code back, either on the machine with `claude-service login-code <code>` (use `-` to read it from stdin) or through the queue: write it to `LOGIN_CODE_FILE`; the watchdog pastes it within a minute and deletes the file. On beat, ntfy-hub writes the queue file for `/login <code>`.
+
+`claude-service login-status` shows whether the login waits for a code, finished (and signed in), or is not running; `claude-service login-stop` ends it. `login-code` is refused unless the login waits for a code, and the code is never printed or put into a notification. The link is safe to share. The code is single-use and expires quickly; any channel that carries it (ntfy, a chat) sees it, so only use one you trust.
+
+Settings in `~/.claude/service.env` (added with empty defaults by the installer): `LOGIN_NOTIFY_CMD`, `LOGIN_CODE_FILE`. Example for beat: `LOGIN_NOTIFY_CMD='/usr/bin/python3 -I /opt/ntfy-hub/hub.py notify --topic infra --title "beat · Claude login" --priority 5 --tags key --message "$CLAUDE_LOGIN_MESSAGE"'` and `LOGIN_CODE_FILE=/srv/data/ntfy-hub/login-code`.
+
 ## Re-running the installer
 
 Safe at any time: `service.env` is kept (new settings are appended with their default), the watchdog is replaced atomically and `claude.service` is restarted, which ends the running tmux session (it is continued by `--continue`, see above). Run it from inside the session with `NO_RESTART=yes bash setup-claude-service.sh`; the new watchdog then runs from the next restart.

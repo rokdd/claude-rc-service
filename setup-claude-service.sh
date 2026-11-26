@@ -5,7 +5,7 @@ set -e
 
 # === FIRST-INSTALL DEFAULTS (override with environment variables) ===
 # They are written once to ~/.claude/service.env; edit that file afterwards, the watchdog re-reads it every minute.
-SCRIPT_VERSION="2.20.0"
+SCRIPT_VERSION="2.21.0"
 # Repo with shared hooks/tasks: the only place that names it. Change this line when the repo moves (e.g. to GitHub).
 # Private repo: use an SSH URL with a deploy key, or a URL with a read-only token. Empty = no syncing.
 GIT_REPO_URL="${GIT_REPO_URL-https://github.com/rokdd/claude-rc-service.git}"
@@ -142,6 +142,8 @@ add_setting FORGE_POLL_SECONDS "# Seconds between forge polls" "${FORGE_POLL_SEC
 add_setting CLAUDE_TOKEN_FILE "# File (chmod 600) with a long-lived token from 'claude setup-token', used as CLAUDE_CODE_OAUTH_TOKEN instead of the /login session. Empty = /login" "$CLAUDE_TOKEN_FILE"
 
 # 5. Watchdog script (written to a temp file and moved into place: a running copy keeps its old content)
+add_setting LOGIN_NOTIFY_CMD "# Sign-in without a browser (claude-service login): command run with the sign-in link in \$CLAUDE_LOGIN_MESSAGE, e.g. a push to ntfy. Empty = print only" ""
+add_setting LOGIN_CODE_FILE "# Sign-in code queue (claude-service login-code -): a file another program writes the code to; the watchdog pastes it into the waiting login and deletes the file. Empty = off" ""
 cat > "$HOME/.local/bin/claude-bootstrap.sh.new" <<'EOF'
 #!/bin/bash
 export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:$PATH"
@@ -309,6 +311,11 @@ inbox_check() {
 
 # Forge mentions/assignments: examples/forge-watch (from the repo copy) writes inbox files for issues that name this bot account.
 last_forge=0
+login_poll() {   # a sign-in code queued in LOGIN_CODE_FILE: paste it into the waiting login (claude-service login-code), then delete the file
+    [ -n "$LOGIN_CODE_FILE" ] && [ -s "$LOGIN_CODE_FILE" ] || return 0
+    local code; code=$(cat "$LOGIN_CODE_FILE"); rm -f "$LOGIN_CODE_FILE"
+    printf '%s' "$code" | "$HOME/.local/bin/claude-service" login-code - 2>&1 | sed "s/^/[$(date +%H:%M:%S)] /"
+}
 forge_poll() {
     [ -n "$FORGE_URL" ] && [ -n "$FORGE_TOKEN_FILE" ] || return 0
     local now; now=$(date +%s)
@@ -466,6 +473,8 @@ PY
         echo "[$(date)] No connection to api.anthropic.com, retrying"
     fi
 
+    login_poll
+
     if [ "$INBOX_WATCH" = "yes" ]; then
         inbox_relay
         forge_poll
@@ -482,7 +491,7 @@ mv -f "$HOME/.local/bin/claude-bootstrap.sh.new" "$HOME/.local/bin/claude-bootst
 # 5a. Command line helper: claude-service status|update|name|restart|logs|attach|version
 cat > "$HOME/.local/bin/claude-service.new" <<'EOF'
 #!/bin/bash
-# Control the Claude background service: claude-service status|update|name|restart|logs|attach|version
+# Control the Claude background service: claude-service status|update|name|restart|logs|attach|version|login|login-code|login-status|login-stop
 export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:$PATH"
 TARGET_DIR="$HOME/.claude"
 REPO_DIR="$HOME/.claude-service-repo"
@@ -490,6 +499,11 @@ LOG="$TARGET_DIR/logs/daemon.log"
 SESSION="claude-service"
 [ -f "$TARGET_DIR/service.env" ] && . "$TARGET_DIR/service.env"
 
+LOGIN_SESSION="claude-login"   # tmux session of 'claude-service login' (default tmux socket, never kill-server)
+login_notify() {   # $1 = text for LOGIN_NOTIFY_CMD (it reads $CLAUDE_LOGIN_MESSAGE); silent when unset
+    [ -n "$LOGIN_NOTIFY_CMD" ] || return 0
+    CLAUDE_LOGIN_MESSAGE="$1" bash -c "$LOGIN_NOTIFY_CMD" >/dev/null 2>&1 || echo "login: could not send the notification"
+}
 repo_version() { grep -m1 '^SCRIPT_VERSION=' "$REPO_DIR/setup-claude-service.sh" 2>/dev/null | cut -d'"' -f2; }
 installed_version() { cat "$TARGET_DIR/state/installed-version" 2>/dev/null || echo "unknown (installed by an older installer)"; }
 unit_active() {
@@ -534,6 +548,41 @@ case "${1:-status}" in
             sed -i.bak "s|^CLAUDE_NAME=.*|CLAUDE_NAME=\"$2\"|" "$TARGET_DIR/service.env" && rm -f "$TARGET_DIR/service.env.bak"
         else printf 'CLAUDE_NAME="%s"\n' "$2" >> "$TARGET_DIR/service.env"; fi
         echo "Name set to '$2'. Run 'claude-service restart' to apply (ends the running session)." ;;
+    login)
+        # Sign in without a browser here: 'claude auth login' runs in tmux session $LOGIN_SESSION. The link is printed and
+        # sent with LOGIN_NOTIFY_CMD; the code comes back with 'login-code' (or the hub: /login <code>).
+        command -v tmux >/dev/null || { echo "login: tmux is needed"; exit 1; }
+        tmux kill-session -t "$LOGIN_SESSION" 2>/dev/null
+        tmux new-session -d -s "$LOGIN_SESSION" -x 220 -y 50 "claude auth login --claudeai; echo EXIT=\$?; sleep 1800"
+        url=""
+        for _ in $(seq 1 30); do
+            url=$(tmux capture-pane -p -t "$LOGIN_SESSION" 2>/dev/null | grep -o 'https://claude.ai/oauth/authorize[^ ]*' | head -1)
+            [ -n "$url" ] && break; sleep 1
+        done
+        [ -n "$url" ] || { echo "login: no sign-in link appeared (look with: tmux attach -t $LOGIN_SESSION)"; exit 1; }
+        echo "Sign-in link: $url"
+        login_notify "Claude login for $(hostname -s). 1. Open this link and sign in: $url 2. Copy the code the page shows. 3. Send it back: claude-service login-code <code> (or /login <code> to the hub)."
+        echo "Waiting for the code: claude-service login-code <code>" ;;
+    login-code)
+        # Paste a sign-in code into the waiting login. Refused unless the login waits for one; the code is never printed.
+        code="$2"; [ "$code" = "-" ] && IFS= read -r code
+        [[ "$code" =~ ^[A-Za-z0-9._~#+/=-]{8,256}$ ]] || { echo "login: code format refused"; login_notify "Claude login: the code was refused (format). Send it again with /login <code>."; exit 1; }
+        tmux has-session -t "$LOGIN_SESSION" 2>/dev/null || { echo "login: no login running"; login_notify "Claude login: no login is running on $(hostname -s). Ask for a new link first."; exit 1; }
+        pane=$(tmux capture-pane -p -t "$LOGIN_SESSION")
+        if [[ "$pane" == *EXIT=* || "$pane" != *"Paste code here"* ]]; then
+            echo "login: not waiting for a code"; login_notify "Claude login: not waiting for a code (done or expired). Ask for a new link."; exit 1
+        fi
+        tmux send-keys -t "$LOGIN_SESSION" -l -- "$code"; tmux send-keys -t "$LOGIN_SESSION" Enter
+        echo "login: code sent"; login_notify "Claude login: code sent to $(hostname -s). Check the result with: claude-service login-status." ;;
+    login-status)
+        tmux has-session -t "$LOGIN_SESSION" 2>/dev/null || { echo "no login running"; exit 0; }
+        pane=$(tmux capture-pane -p -t "$LOGIN_SESSION")
+        if [[ "$pane" == *EXIT=* ]]; then
+            echo "login finished ($(grep -o 'EXIT=[0-9]*' <<<"$pane" | tail -1))"
+            grep -q '"loggedIn": *true' <<<"$(claude auth status 2>/dev/null)" && echo "signed in" || echo "NOT signed in"
+        elif [[ "$pane" == *"Paste code here"* ]]; then echo "waiting for the code"
+        else echo "login running"; fi ;;
+    login-stop) tmux kill-session -t "$LOGIN_SESSION" 2>/dev/null && echo "login stopped" || echo "no login running" ;;
     inbox)
         # delivery ledger written by the watchdog: claude-service inbox [list|all|summary|done <file...> [note]]
         ST="$TARGET_DIR/state/inbox-status"
@@ -701,7 +750,7 @@ $b $a"
     logs)    tail -n "${2:-50}" -f "$LOG" ;;
     attach)  exec tmux attach -t "$SESSION" ;;
     version) installed_version ;;
-    *) echo "Usage: claude-service status|update [--restart]|name [new]|inbox|restart|logs [lines]|attach|version"; exit 1 ;;
+    *) echo "Usage: claude-service status|update [--restart]|name [new]|login|login-code|login-status|login-stop|inbox|restart|logs [lines]|attach|version"; exit 1 ;;
 esac
 EOF
 chmod +x "$HOME/.local/bin/claude-service.new"
