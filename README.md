@@ -171,6 +171,9 @@ On the hub, `claude-service inbox` does the bookkeeping so nothing has to be edi
 
 The bundle holds the machine's **private** key. It is never printed: copy it to the machine by hand, run it once there (installs `~/bin/inbox-put`, adds the hub's key to `~/.ssh/authorized_keys`, stores the key for sending to the hub, prints the send and test commands) and `shred -u` it on both sides. The new machine's own inbox only opens sessions if it runs this service with `INBOX_WATCH="yes"`. Setting `INBOX_HUB` (`user@address[:port]`), `INBOX_HUB_NAME` and `INBOX_HUB_IP` in `service.env` fills the bundle with the right addresses; `INBOX_AUTH_KEYS`, `INBOX_PUT_CMD` and `INBOX_ROUTES` point to the receiving account's `authorized_keys`, its forced command and the routes file when the hub receives under another account (sudo is used where a file is not writable or readable). Existing machines keep working as they are; `machines` shows them as soon as their key comment is `<name>-to-<hub>`.
 
+
+A sender may also name the hub itself as target (`put <hub>/<name>`, compared without case to `INBOX_SELF`, default the short hostname): that is a plain `put <name>` into the hub's own inbox, so senders can always use `<target>/<name>` (2.21.2).
+
 ## Forge mentions and assignments
 
 Every bot machine can be addressed on the forge like through the inbox: assign an issue or PR to its account, or write `@account` in the text or in a comment, and the machine opens an inbox session for it.

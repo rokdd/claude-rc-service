@@ -7,16 +7,21 @@
 # allowed: no shell, no reading, no other commands. Without a sender argument names are kept as is.
 # Relay: "put <target>/<name>" stores the file as $INBOX_DIR/<target>/<sender>-<name>, where the watchdog
 # forwards it to <target> (README, "Inbox relay"). Only allowed if INBOX_ROUTES (default ~/.claude/inbox-routes,
-# lines "<sender> <target>") lists the pair; the target folder must exist.
+# lines "<sender> <target>") lists the pair; the target folder must exist. "put <this host>/<name>" (INBOX_SELF,
+# default the short hostname) is a plain put, so senders can always write "<target>/<name>".
 set -euo pipefail
 umask 077
 INBOX_DIR=${INBOX_DIR:-$HOME/inbox}
 INBOX_ROUTES=${INBOX_ROUTES:-$HOME/.claude/inbox-routes}
+INBOX_SELF=${INBOX_SELF:-$(hostname -s 2>/dev/null || hostname)}   # "put <this host>/<name>" = plain put
 sender=${1:-}
 read -r cmd name extra <<< "${SSH_ORIGINAL_COMMAND:-}"
 dir=$INBOX_DIR
 if [[ "${name:-}" =~ ^([A-Za-z0-9][A-Za-z0-9._-]{0,30})/([A-Za-z0-9][A-Za-z0-9._-]{0,63})$ ]]; then
-    target=${BASH_REMATCH[1]}; name=${BASH_REMATCH[2]}; dir="$INBOX_DIR/$target"
+    target=${BASH_REMATCH[1]}; name=${BASH_REMATCH[2]}
+fi
+if [ -n "${target:-}" ] && [ "$(printf %s "$target" | tr A-Z a-z)" != "$(printf %s "$INBOX_SELF" | tr A-Z a-z)" ]; then
+    dir="$INBOX_DIR/$target"
     if [ -z "$sender" ] || ! grep -qx "$sender $target" "$INBOX_ROUTES" 2>/dev/null || [ ! -d "$dir" ]; then
         echo "no route to $target" >&2; exit 4
     fi
